@@ -6,19 +6,16 @@
 
 ## 機能
 
-- **リポジトリ一覧** — staged / unstaged / untracked のファイル数、ブランチ名、ahead/behind を一覧表示
+- **リポジトリ一覧** — staged / unstaged / untracked のファイル数、ブランチ名、ahead/behind
 - **ステータス管理** — ファイルごとのステージ・アンステージ、一括操作
-- **変更取り消し** — unstaged / untracked ファイルを確認ダイアログ付きで取り消し（`git restore` / `git clean`）
+- **変更取り消し** — unstaged / untracked ファイルを `git restore` / `git clean` で取り消し
 - **ファイルビュー** — diff / staged diff / ファイル内容の 3 タブ、画像・動画プレビュー
 - **コミット履歴** — コミット一覧から diff 表示、ファイルごとに開閉可能
 - **iOS 風スワイプバック** — 画面左端からスワイプで戻れる
 
 ## 技術スタック
 
-- **Runtime**: Bun
-- **Backend**: Hono、`child_process.execFile` で git コマンドを実行、`Bun.serve` で HTTP を提供
-- **Frontend**: React + Vite（静的ビルドを Hono が配信）
-- **TLS**: `tailscale serve` で TLS 終端（オプション）
+Bun · Hono · React + Vite。TLS は `tailscale serve` で終端（任意）。
 
 ## インストール
 
@@ -28,8 +25,7 @@
 git clone <このリポジトリ> gitview && cd gitview
 bun install
 cd client && bun install && bun run build && cd ..
-cp config.example.json config.json
-# config.json を編集して対象リポジトリを指定（後述の「設定」参照）
+cp config.example.json config.json   # その後 config.json を編集
 ```
 
 ## 起動
@@ -38,28 +34,61 @@ cp config.example.json config.json
 bun start
 ```
 
-サーバーは `http://127.0.0.1:10001`（ループバックのみ）で待ち受ける。
+`http://127.0.0.1:10001`（ループバックのみ）で待ち受ける。
+
+### 常時起動（launchd, macOS）
+
+ログイン時に自動起動・クラッシュ時に自動再起動する LaunchAgent として登録する。`/Users/YOU` を自分のホームパスに置換し `~/Library/LaunchAgents/com.gitview.server.plist` に保存：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.gitview.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>exec /Users/YOU/.bun/bin/bun /Users/YOU/Dev/gitview/server.ts</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/YOU/Dev/gitview</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/Users/YOU/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/YOU/Dev/gitview/logs/server.log</string>
+  <key>StandardErrorPath</key><string>/Users/YOU/Dev/gitview/logs/server.err</string>
+</dict></plist>
+```
+
+`bash -c "exec bun …"` でラップするのは、子プロセスが Aqua セッションの Mach bootstrap を継承するため（macOS の一部連携機能に必要）。`exec` で bash を bun に置き換えるのでプロセスツリーはフラットに保たれる。
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.gitview.server.plist
+launchctl kickstart -k gui/$(id -u)/com.gitview.server   # 設定変更後の再起動
+launchctl unload ~/Library/LaunchAgents/com.gitview.server.plist
+```
+
+ポート `10001` が既に使われていると `EADDRINUSE` で落ちるため、先に `lsof -i :10001` で確認して旧プロセスを止めること。
 
 ### Tailnet 経由のアクセス（HTTPS）
 
-`tailscale serve` で TLS 終端を Tailscale 側に任せると、Tailscale 発行の正規証明書で HTTPS アクセスでき、証明書のローテーションも自動になる。
+`tailscale serve` で TLS 終端させると、自動ローテーションされる Tailscale 発行の正規証明書で HTTPS アクセスできる：
 
 ```bash
 tailscale serve --bg --https=10001 http://localhost:10001
 ```
 
-これで Tailnet 内のどの端末からも `https://<tailscale-hostname>.ts.net:10001/` にブラウザ警告なしでアクセスできる。
-
-状態確認・解除：
+Tailnet 内のどの端末からも `https://<tailscale-hostname>.ts.net:10001/` で到達可能。
 
 ```bash
-tailscale serve status               # 現在の設定を確認
+tailscale serve status               # 確認
 tailscale serve --https=10001 off    # 解除
 ```
 
 ## 設定 (`config.json`)
 
-`config.json` は `.gitignore` 対象。`config.example.json` をコピーして自分のマシンに合わせて編集する。
+`.gitignore` 対象。`config.example.json` をコピーして編集する。
 
 ```json
 {
@@ -70,17 +99,14 @@ tailscale serve --https=10001 off    # 解除
 }
 ```
 
-| キー | 説明 |
-|------|------|
-| `scanDirs` | 再帰的にスキャンして `.git` を含むディレクトリを自動検出する（デフォルト深さ 6） |
-| `repos` | 直接指定するリポジトリパス（`scanDirs` と併用可） |
-| `port` | サーバーポート番号（デフォルト `10001`） |
-| `ignoreDirs` | スキャン時に無視するディレクトリ名 |
+- `scanDirs` — 再帰スキャン対象（深さ 6 まで）
+- `repos` — 明示的に指定するリポジトリパス（`scanDirs` と併用可）
+- `ignoreDirs` — スキャン時に無視するディレクトリ名
 
-## ネットワーク公開範囲
+## セキュリティ
 
-サーバーは `127.0.0.1` のみで待ち受けるため、デフォルトでは同一マシンからしか到達できない。Tailnet 経由でアクセスできるのは `tailscale serve` がローカルプロキシとして動作するため。
+GitView は **認証機構を持たず**、設定された全リポジトリへの読み書き（stage / discard / clean）を許可する。ループバックまたは Tailnet 内に閉じて使うこと。
 
-- **Tailscale**: OS のファイアウォール許可は不要（Tailscale が独自のネットワークインタフェースを使うため）。
-- **LAN**: デフォルトでは公開していない。同一 Wi-Fi 上のスマホから Tailscale 無しで直接アクセスしたい場合は、`server.ts` の `hostname` を `'127.0.0.1'` から `'0.0.0.0'` に変更し、macOS の「ネットワーク受信を許可しますか？」ダイアログで **許可** を選ぶ。
-- **インターネット公開**: ルーターでのポート開放は **しないこと**。GitView は認証機構を持たず、設定ファイルに記載されたリポジトリへの読み書きを許可するため、外部公開すると危険。Tailnet または LAN 内に閉じて使う。
+- **Tailscale**: `tailscale serve` 経由でそのまま利用可（ファイアウォール変更不要）。
+- **LAN**: デフォルト非公開。同一 Wi-Fi 上の端末から Tailscale 無しで使うには、`server.ts` の `hostname` を `'127.0.0.1'` から `'0.0.0.0'` に変更し macOS のダイアログで許可。
+- **インターネット公開**: ルーターでのポート開放は **不可**。
