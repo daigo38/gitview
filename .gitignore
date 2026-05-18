@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+client/node_modules/
+
+# Build artifacts
+client/dist/
+client/dist-types/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+config.json
+certs*/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+.git.backup/

@@ -1,0 +1,16 @@
+{
+  "scanDirs": [
+    "/Users/you/Dev"
+  ],
+  "repos": [
+    "/Users/you/path/to/some-repo"
+  ],
+  "port": 10001,
+  "ignoreDirs": [
+    "node_modules",
+    ".git",
+    "vendor",
+    "dist",
+    ".cache"
+  ]
+}
