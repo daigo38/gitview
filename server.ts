@@ -19,6 +19,10 @@ interface FileListBody {
   files?: string[];
 }
 
+interface CommitBody {
+  message?: string;
+}
+
 let config: ServerConfig;
 const configPath = path.join(__dirname, 'config.json');
 try {
@@ -246,6 +250,19 @@ app.post('/api/repos/:id/clean', async c => {
     const repoPath = validateRepoId(c.req.param('id'));
     const body = await readJsonBody<FileListBody>(c, {});
     await git.cleanFiles(repoPath, body.files);
+    return c.json(await git.getRepoDetail(repoPath));
+  } catch (e) {
+    return errorResponse(c, e, 400);
+  }
+});
+
+app.post('/api/repos/:id/commit', async c => {
+  try {
+    const repoPath = validateRepoId(c.req.param('id'));
+    const body = await readJsonBody<CommitBody>(c, {});
+    const message = typeof body.message === 'string' ? body.message : '';
+    if (!message.trim()) return c.json({ error: 'message required' }, 400);
+    await git.commitChanges(repoPath, message);
     return c.json(await git.getRepoDetail(repoPath));
   } catch (e) {
     return errorResponse(c, e, 400);

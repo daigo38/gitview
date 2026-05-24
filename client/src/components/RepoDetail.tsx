@@ -169,6 +169,8 @@ export default function RepoDetail({ repoId, repoName, navigate }: RepoDetailPro
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<RepoTab>('status');
+  const [commitMsg, setCommitMsg] = useState('');
+  const [committing, setCommitting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -204,6 +206,30 @@ export default function RepoDetail({ repoId, repoName, navigate }: RepoDetailPro
   const unstage = useCallback((files: string[] | undefined) => operate('unstage', files), [operate]);
   const discard = useCallback((files: string[] | undefined) => operate('discard', files), [operate]);
   const clean   = useCallback((files: string[] | undefined) => operate('clean',   files), [operate]);
+
+  const commit = useCallback(async () => {
+    const message = commitMsg.trim();
+    if (!message || committing) return;
+    setCommitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/repos/${repoId}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `HTTP ${res.status}`);
+      }
+      setDetail((await res.json()) as RepoDetailData);
+      setCommitMsg('');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCommitting(false);
+    }
+  }, [repoId, commitMsg, committing]);
 
   if (loading) return (
     <div className="scroll-area">
@@ -282,6 +308,23 @@ export default function RepoDetail({ repoId, repoName, navigate }: RepoDetailPro
                       onAction={(p) => { void unstage([p]); }}
                     />
                   ))}
+                </div>
+                <div className="commit-box">
+                  <textarea
+                    className="commit-input"
+                    placeholder="コミットメッセージ"
+                    rows={2}
+                    value={commitMsg}
+                    onChange={e => setCommitMsg(e.target.value)}
+                    disabled={committing}
+                  />
+                  <button
+                    className="commit-btn"
+                    onClick={() => { void commit(); }}
+                    disabled={committing || commitMsg.trim().length === 0}
+                  >
+                    {committing ? 'コミット中…' : `コミット (${staged.length})`}
+                  </button>
                 </div>
               </div>
             )}

@@ -397,4 +397,10 @@ export async function cleanFiles(repoPath: string, files?: readonly string[]): P
   await execGit(args, repoPath);
 }
 
+export async function commitChanges(repoPath: string, message: string): Promise<void> {
+  const trimmed = message.trim();
+  if (!trimmed) throw new Error('Commit message is required');
+  await execGit(['commit', '-m', trimmed], repoPath);
+}
+
 export { validatePath as validatePathPublic };
