@@ -141,25 +141,31 @@ export async function scanRepos(config: ScanConfig): Promise<string[]> {
   return [...found].sort();
 }
 
+// `git status --porcelain -z` の出力をパースする。
+// `-z` を使うのは、特殊文字（"、\、制御文字、非ASCII 等）を含むパスが
+// クォート＆エスケープされてしまうのを避けるため。NUL 終端なら生パスのまま得られる。
 function parseStatus(output: string): FileStatus[] {
-  const lines = output.split('\n').filter(Boolean);
-  return lines.map(line => {
-    const x = line.charAt(0);
-    const y = line.charAt(1);
-    let filePath = line.slice(3);
-    if (filePath.includes(' -> ')) {
-      const parts = filePath.split(' -> ');
-      filePath = parts[1] ?? filePath;
-    }
-    return {
+  if (!output) return [];
+  const entries = output.split('\0');
+  const files: FileStatus[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry || entry.length < 3) continue;
+    const x = entry.charAt(0);
+    const y = entry.charAt(1);
+    const filePath = entry.slice(3);
+    // R/C エントリは続く NUL の後ろに元パスが入っているので消費する
+    if (x === 'R' || x === 'C') i++;
+    files.push({
       x,
       y,
       path: filePath,
       isUntracked: x === '?' && y === '?',
       isStaged: x !== ' ' && x !== '?',
       isUnstaged: y !== ' ' && y !== '?',
-    };
-  });
+    });
+  }
+  return files;
 }
 
 function isDotfile(filePath: string): boolean {
@@ -184,7 +190,7 @@ async function getWorktreeParent(repoPath: string): Promise<string | null> {
 
 export async function getRepoSummary(repoPath: string): Promise<RepoSummary> {
   const [statusOut, branchOut, lastCommitOut, parentName] = await Promise.all([
-    execGit(['status', '--porcelain'], repoPath).catch(() => ''),
+    execGit(['status', '--porcelain', '-z'], repoPath).catch(() => ''),
     execGit(['branch', '--show-current'], repoPath).catch(() => ''),
     execGit(['log', '-1', '--format=%ct'], repoPath).catch(() => '0'),
     getWorktreeParent(repoPath),
@@ -224,7 +230,7 @@ export async function getRepoSummary(repoPath: string): Promise<RepoSummary> {
 
 export async function getRepoDetail(repoPath: string): Promise<RepoDetail> {
   const [statusOut, branchOut] = await Promise.all([
-    execGit(['status', '--porcelain'], repoPath).catch(() => ''),
+    execGit(['status', '--porcelain', '-z'], repoPath).catch(() => ''),
     execGit(['branch', '--show-current'], repoPath).catch(() => ''),
   ]);
 
