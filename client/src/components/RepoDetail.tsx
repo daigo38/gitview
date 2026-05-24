@@ -164,6 +164,14 @@ interface RepoDetailProps {
 type RepoTab = 'status' | 'tree' | 'log';
 type RepoOperation = 'stage' | 'unstage' | 'discard' | 'clean';
 
+type RemoteAction = 'push' | 'pull';
+
+interface RemoteResult {
+  action: RemoteAction;
+  ok: boolean;
+  text: string;
+}
+
 export default function RepoDetail({ repoId, repoName, navigate }: RepoDetailProps) {
   const [detail, setDetail] = useState<RepoDetailData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -171,6 +179,8 @@ export default function RepoDetail({ repoId, repoName, navigate }: RepoDetailPro
   const [tab, setTab] = useState<RepoTab>('status');
   const [commitMsg, setCommitMsg] = useState('');
   const [committing, setCommitting] = useState(false);
+  const [remoteBusy, setRemoteBusy] = useState<RemoteAction | null>(null);
+  const [remoteResult, setRemoteResult] = useState<RemoteResult | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -206,6 +216,31 @@ export default function RepoDetail({ repoId, repoName, navigate }: RepoDetailPro
   const unstage = useCallback((files: string[] | undefined) => operate('unstage', files), [operate]);
   const discard = useCallback((files: string[] | undefined) => operate('discard', files), [operate]);
   const clean   = useCallback((files: string[] | undefined) => operate('clean',   files), [operate]);
+
+  const runRemote = useCallback(async (action: RemoteAction) => {
+    if (remoteBusy) return;
+    setRemoteBusy(action);
+    setRemoteResult(null);
+    try {
+      const res = await fetch(`/api/repos/${repoId}/${action}`, { method: 'POST' });
+      const data = (await res.json().catch(() => null)) as
+        | { output?: string; detail?: RepoDetailData; error?: string }
+        | null;
+      if (!res.ok) {
+        throw new Error(data?.error ?? `HTTP ${res.status}`);
+      }
+      if (data?.detail) setDetail(data.detail);
+      setRemoteResult({ action, ok: true, text: (data?.output ?? '').trim() || 'OK' });
+    } catch (e: unknown) {
+      setRemoteResult({
+        action,
+        ok: false,
+        text: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setRemoteBusy(null);
+    }
+  }, [repoId, remoteBusy]);
 
   const commit = useCallback(async () => {
     const message = commitMsg.trim();
@@ -262,13 +297,36 @@ export default function RepoDetail({ repoId, repoName, navigate }: RepoDetailPro
             {behind > 0 && <span className="behind"> ↓{behind}</span>}
           </span>
         )}
-        <button
-          onClick={() => { void load(); }}
-          style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--muted)', fontSize: 13, cursor: 'pointer' }}
-        >
-          更新
-        </button>
+        <div className="repo-header-actions">
+          <button
+            className="remote-btn remote-btn-pull"
+            onClick={() => { void runRemote('pull'); }}
+            disabled={remoteBusy !== null}
+            title="git pull --ff-only"
+          >
+            {remoteBusy === 'pull' ? 'Pull中…' : 'Pull'}
+          </button>
+          <button
+            className="remote-btn remote-btn-push"
+            onClick={() => { void runRemote('push'); }}
+            disabled={remoteBusy !== null}
+            title="git push"
+          >
+            {remoteBusy === 'push' ? 'Push中…' : 'Push'}
+          </button>
+          <button className="repo-header-refresh" onClick={() => { void load(); }}>更新</button>
+        </div>
       </div>
+
+      {remoteResult && (
+        <div className={`remote-result ${remoteResult.ok ? 'remote-result-ok' : 'remote-result-err'}`}>
+          <div className="remote-result-head">
+            <span>{remoteResult.action === 'push' ? 'Push' : 'Pull'} {remoteResult.ok ? '成功' : '失敗'}</span>
+            <button className="remote-result-close" onClick={() => setRemoteResult(null)} aria-label="閉じる">×</button>
+          </div>
+          <pre className="remote-result-body">{remoteResult.text}</pre>
+        </div>
+      )}
 
       <div className="tabs">
         <button className={`tab ${tab === 'status' ? 'active' : ''}`} onClick={() => setTab('status')}>

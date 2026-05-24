@@ -269,6 +269,28 @@ app.post('/api/repos/:id/commit', async c => {
   }
 });
 
+app.post('/api/repos/:id/push', async c => {
+  try {
+    const repoPath = validateRepoId(c.req.param('id'));
+    const output = await git.pushChanges(repoPath);
+    const detail = await git.getRepoDetail(repoPath);
+    return c.json({ output, detail });
+  } catch (e) {
+    return errorResponse(c, e, 400);
+  }
+});
+
+app.post('/api/repos/:id/pull', async c => {
+  try {
+    const repoPath = validateRepoId(c.req.param('id'));
+    const output = await git.pullChanges(repoPath);
+    const detail = await git.getRepoDetail(repoPath);
+    return c.json({ output, detail });
+  } catch (e) {
+    return errorResponse(c, e, 400);
+  }
+});
+
 // 静的配信 + SPAフォールバック
 if (fs.existsSync(CLIENT_DIST)) {
   app.use('/*', serveStatic({ root: './client/dist' }));

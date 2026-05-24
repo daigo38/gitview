@@ -73,15 +73,40 @@ export interface CommitDetail {
   diff: string;
 }
 
-function execGit(args: readonly string[], cwd: string): Promise<string> {
+function execGit(args: readonly string[], cwd: string, timeout = 15000): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
       ['-c', 'core.quotePath=false', ...args],
-      { cwd, maxBuffer: 20 * 1024 * 1024, timeout: 15000 },
+      { cwd, maxBuffer: 20 * 1024 * 1024, timeout },
       (err: ExecFileException | null, stdout: string, stderr: string) => {
         if (err) reject(new Error(stderr || err.message));
         else resolve(stdout);
+      },
+    );
+  });
+}
+
+// push/pull など stderr に進行表示が出る系は stdout/stderr を両方返したい
+function execGitCombined(
+  args: readonly string[],
+  cwd: string,
+  timeout = 120000,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'git',
+      ['-c', 'core.quotePath=false', ...args],
+      { cwd, maxBuffer: 20 * 1024 * 1024, timeout },
+      (err: ExecFileException | null, stdout: string, stderr: string) => {
+        if (err) {
+          const msg = [stderr.trim(), stdout.trim(), err.message]
+            .filter(Boolean)
+            .join('\n');
+          reject(new Error(msg || 'git command failed'));
+          return;
+        }
+        resolve({ stdout, stderr });
       },
     );
   });
@@ -407,6 +432,22 @@ export async function commitChanges(repoPath: string, message: string): Promise<
   const trimmed = message.trim();
   if (!trimmed) throw new Error('Commit message is required');
   await execGit(['commit', '-m', trimmed], repoPath);
+}
+
+// stderr のほうが人間向けの進行表示が入ることが多いので、両方くっつけて整形して返す
+function formatGitOutput(stdout: string, stderr: string): string {
+  return [stderr.trim(), stdout.trim()].filter(Boolean).join('\n');
+}
+
+export async function pushChanges(repoPath: string): Promise<string> {
+  const { stdout, stderr } = await execGitCombined(['push'], repoPath);
+  return formatGitOutput(stdout, stderr);
+}
+
+export async function pullChanges(repoPath: string): Promise<string> {
+  // --ff-only: 自動でマージコミットや rebase を起こさず、競合があれば失敗させる
+  const { stdout, stderr } = await execGitCombined(['pull', '--ff-only'], repoPath);
+  return formatGitOutput(stdout, stderr);
 }
 
 export { validatePath as validatePathPublic };

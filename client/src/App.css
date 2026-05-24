@@ -651,6 +651,73 @@ html, body, #root {
 .ahead { color: var(--green); }
 .behind { color: var(--red); }
 
+.repo-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.remote-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.remote-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.remote-btn-pull { background: rgba(88, 166, 255, 0.18); color: var(--blue); }
+.remote-btn-push { background: rgba(63, 185, 80, 0.18); color: var(--green); }
+.repo-header-refresh {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px 8px;
+  font-family: inherit;
+}
+
+.remote-result {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+}
+.remote-result-ok  { border-left: 3px solid var(--green); }
+.remote-result-err { border-left: 3px solid var(--red); }
+.remote-result-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--muted);
+}
+.remote-result-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.remote-result-body {
+  margin: 0;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow: auto;
+}
+
 /* Staged/Unstaged label */
 .file-tags {
   display: flex;
