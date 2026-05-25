@@ -113,11 +113,6 @@ export default function App() {
   phaseRef.current = phase;
   historyLenRef.current = history.length;
 
-  const current = history[history.length - 1];
-  const prev    = history.length > 1 ? history[history.length - 2] : null;
-  const canGoBack     = history.length > 1;
-  const canPrevGoBack = history.length > 2;
-
   const navigate = useCallback<NavigateFn>((v) => {
     if (phaseRef.current !== 'idle') return;
     setHistory(h => [...h, v]);
@@ -217,46 +212,60 @@ export default function App() {
     };
   }, []); // mount once; reads from refs
 
-  const showPrev = phase === 'entering' || phase === 'exiting' || phase === 'swiping';
+  // Prev screen position: during entering/idle it sits at -30% (parallax),
+  // during exiting it slides to 0% (revealed), during swiping it parallax-follows.
+  const prevTransform = phase === 'swiping'
+    ? `translateX(${(-30 + (swipeX / window.innerWidth) * 30).toFixed(2)}%)`
+    : phase === 'exiting' ? 'translateX(0%)'
+    : 'translateX(-30%)';
+  const prevTransition = phase === 'entering'
+    ? 'transform 0.32s cubic-bezier(0.25, 0.46, 0.45, 0.94)'
+    : phase === 'exiting'
+      ? 'transform 0.28s cubic-bezier(0.55, 0, 1, 0.45)'
+      : (phase === 'swiping' && swipeSettle)
+        ? 'transform 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94)'
+        : 'none';
 
-  // Prev screen: during entering it's pushed left (-30%), during swiping it parallax-follows
-  const prevX = phase === 'swiping'
-    ? `${(-30 + (swipeX / window.innerWidth) * 30).toFixed(2)}%`
-    : phase === 'entering' ? '-30%'
-    : '0%';
-  const prevTransition = (phase === 'swiping' && swipeSettle)
-    ? 'transform 0.28s cubic-bezier(0.25,0.46,0.45,0.94)'
-    : 'none';
-
-  // Current screen
-  const currentStyle: React.CSSProperties = phase === 'swiping'
-    ? {
-        transform: `translateX(${swipeX}px)`,
-        transition: swipeSettle ? 'transform 0.28s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none',
-      }
-    : {};
-  const currentClass = [
-    'screen',
-    phase === 'entering' ? 'screen-enter' : '',
-    phase === 'exiting'  ? 'screen-exit'  : '',
-    phase === 'swiping'  ? 'screen-swiping' : '',
-  ].filter(Boolean).join(' ');
-
-  if (!current) return null;
+  if (history.length === 0) return null;
 
   return (
     <div className="app" ref={containerRef}>
-      {showPrev && prev && (
-        <div
-          className="screen screen-bg"
-          style={{ transform: `translateX(${prevX})`, transition: prevTransition }}
-        >
-          <ScreenContent view={prev} navigate={navigate} goBack={goBack} canGoBack={canPrevGoBack} />
-        </div>
-      )}
-      <div className={currentClass} style={currentStyle}>
-        <ScreenContent view={current} navigate={navigate} goBack={goBack} canGoBack={canGoBack} />
-      </div>
+      {history.map((view, i) => {
+        const isCurrent = i === history.length - 1;
+        const isPrev    = i === history.length - 2;
+
+        let style: React.CSSProperties = {};
+        let className = 'screen';
+
+        if (isCurrent) {
+          if (phase === 'swiping') {
+            style = {
+              transform: `translateX(${swipeX}px)`,
+              transition: swipeSettle ? 'transform 0.28s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none',
+            };
+          }
+          className = [
+            'screen',
+            phase === 'entering' ? 'screen-enter' : '',
+            phase === 'exiting'  ? 'screen-exit'  : '',
+            phase === 'swiping'  ? 'screen-swiping' : '',
+          ].filter(Boolean).join(' ');
+        } else if (isPrev) {
+          style = { transform: prevTransform, transition: prevTransition };
+          className = 'screen screen-bg';
+        } else {
+          // Older history items: keep mounted so state (tab, expanded folders, scroll)
+          // is preserved when the user navigates back, but hide from view.
+          style = { transform: 'translateX(-30%)', visibility: 'hidden' };
+          className = 'screen screen-bg';
+        }
+
+        return (
+          <div key={i} className={className} style={style}>
+            <ScreenContent view={view} navigate={navigate} goBack={goBack} canGoBack={i > 0} />
+          </div>
+        );
+      })}
     </div>
   );
 }
