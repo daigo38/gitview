@@ -308,6 +308,7 @@ if (fs.existsSync(CLIENT_DIST)) {
 Bun.serve({
   port: PORT,
   hostname: '127.0.0.1',
+  idleTimeout: 180,
   fetch: app.fetch,
 });
 console.log(`\nGitView started on http://localhost:${PORT}`);
