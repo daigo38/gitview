@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import FileTree from './FileTree.tsx';
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus.ts';
 import type { FileStatus, FileTab, LogEntry, NavigateFn, RepoDetail as RepoDetailData } from '../types.ts';
@@ -76,11 +76,18 @@ function FileItem({
   onDiscard,
   onShowInTree,
 }: FileItemProps) {
+  const pathRef = useRef<HTMLSpanElement | null>(null);
   const parts = file.path.split('/');
   const name = parts.pop() ?? file.path;
   const dir = parts.join('/');
 
   const defaultTab: FileTab = file.isUntracked ? 'file' : (file.isStaged ? 'staged' : 'diff');
+
+  useLayoutEffect(() => {
+    const el = pathRef.current;
+    if (!el) return;
+    el.scrollLeft = el.scrollWidth;
+  }, [file.path]);
 
   return (
     <div
@@ -98,7 +105,7 @@ function FileItem({
       <span className={`file-status ${getStatusClass(file.x, file.y)}`}>
         {getStatusChar(file.x, file.y)}
       </span>
-      <span className="file-path">
+      <span className="file-path" ref={pathRef}>
         {dir && <span className="file-path-dir">{dir}/</span>}
         <span className="file-path-name">{name}</span>
       </span>
