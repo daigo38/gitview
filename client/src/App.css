@@ -521,6 +521,18 @@ html, body, #root {
   white-space: nowrap;
 }
 .tree-item.dir .tree-name { color: var(--link); }
+.tree-item.ignored,
+.tree-search-result.ignored {
+  opacity: 0.62;
+}
+.tree-item.ignored .tree-name,
+.tree-search-result.ignored .tree-search-path {
+  color: var(--muted);
+}
+.tree-item.ignored .tree-icon,
+.tree-search-result.ignored .tree-icon {
+  opacity: 0.65;
+}
 
 .tree-children {
   border-bottom: 1px solid var(--border);

@@ -43,6 +43,7 @@ export interface TreeEntry {
   name: string;
   type: 'dir' | 'file';
   path: string;
+  ignored?: boolean;
 }
 
 export interface FileContentResponse {

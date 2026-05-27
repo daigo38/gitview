@@ -55,6 +55,7 @@ export interface TreeEntry {
   name: string;
   type: 'dir' | 'file';
   path: string;
+  ignored?: boolean;
 }
 
 export interface FileContent {
@@ -105,6 +106,30 @@ function execGit(args: readonly string[], cwd: string, timeout = 15000): Promise
   });
 }
 
+function execGitWithInput(
+  args: readonly string[],
+  cwd: string,
+  input: string,
+  timeout = 15000,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      'git',
+      ['-c', 'core.quotePath=false', ...args],
+      { cwd, maxBuffer: 20 * 1024 * 1024, timeout },
+      (err: ExecFileException | null, stdout: string, stderr: string) => {
+        if (err && err.code === 1 && !stderr) {
+          resolve('');
+          return;
+        }
+        if (err) reject(new Error(stderr || err.message));
+        else resolve(stdout);
+      },
+    );
+    child.stdin?.end(input);
+  });
+}
+
 // git grep は「マッチなし」で exit 1 を返すので、それをエラー扱いしない版
 function execGitGrep(args: readonly string[], cwd: string, timeout = 30000): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -125,6 +150,30 @@ function execGitGrep(args: readonly string[], cwd: string, timeout = 30000): Pro
       },
     );
   });
+}
+
+async function getIgnoredPathSet(repoPath: string, paths: readonly string[]): Promise<Set<string>> {
+  const uniquePaths = [...new Set(paths.filter(Boolean))];
+  if (uniquePaths.length === 0) return new Set();
+
+  try {
+    const out = await execGitWithInput(
+      ['check-ignore', '--stdin', '-z'],
+      repoPath,
+      `${uniquePaths.join('\0')}\0`,
+    );
+    return new Set(out.split('\0').filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+async function markIgnoredEntries(repoPath: string, entries: TreeEntry[]): Promise<TreeEntry[]> {
+  const ignored = await getIgnoredPathSet(repoPath, entries.map(e => e.path));
+  if (ignored.size === 0) return entries;
+  return entries.map(entry => (
+    ignored.has(entry.path) ? { ...entry, ignored: true } : entry
+  ));
 }
 
 // push/pull など stderr に進行表示が出る系は stdout/stderr を両方返したい
@@ -357,7 +406,7 @@ export async function getFileTree(
   const fullPath = validatePath(repoPath, subPath);
 
   const entries = await fs.promises.readdir(fullPath, { withFileTypes: true });
-  return entries
+  const treeEntries = entries
     .filter(e => !safeIgnore.has(e.name))
     .map((e): TreeEntry => ({
       name: e.name,
@@ -368,6 +417,8 @@ export async function getFileTree(
       if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
+
+  return markIgnoredEntries(repoPath, treeEntries);
 }
 
 export async function searchFileTree(
@@ -424,7 +475,8 @@ export async function searchFileTree(
   }
 
   await walk('');
-  return { matches, truncated };
+  const markedMatches = await markIgnoredEntries(repoPath, matches);
+  return { matches: markedMatches, truncated };
 }
 
 export async function getFileContent(repoPath: string, filePath: string): Promise<FileContent> {

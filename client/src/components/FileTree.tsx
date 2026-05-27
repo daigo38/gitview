@@ -95,7 +95,7 @@ function TreeNode({
     <>
       <div
         ref={itemRef}
-        className={`tree-item ${entry.type} ${isTarget ? 'tree-item-target' : ''}`}
+        className={`tree-item ${entry.type} ${entry.ignored ? 'ignored' : ''} ${isTarget ? 'tree-item-target' : ''}`}
         style={{ paddingLeft: `${16 + depth * 16}px` }}
         onClick={() => { void toggle(); }}
       >
@@ -300,7 +300,7 @@ function NameSearchResults({ repoId, query, refreshToken, onRevealPath }: NameSe
       {data.matches.map(entry => (
         <div
           key={entry.path}
-          className={`tree-search-result ${entry.type}`}
+          className={`tree-search-result ${entry.type} ${entry.ignored ? 'ignored' : ''}`}
           onClick={() => onRevealPath(entry.path)}
         >
           <span className="tree-icon">{entry.type === 'dir' ? '📁' : getFileIcon(entry.name)}</span>
