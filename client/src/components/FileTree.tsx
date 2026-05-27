@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus.ts';
 import type { NavigateFn, SearchMatch, SearchResult, TreeEntry } from '../types.ts';
 
 interface TreeNodeProps {
@@ -7,12 +8,27 @@ interface TreeNodeProps {
   repoName: string;
   navigate: NavigateFn;
   depth?: number;
+  refreshToken: number;
 }
 
-function TreeNode({ entry, repoId, repoName, navigate, depth = 0 }: TreeNodeProps) {
+function TreeNode({ entry, repoId, repoName, navigate, depth = 0, refreshToken }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<TreeEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const lastRefreshTokenRef = useRef(refreshToken);
+
+  const loadChildren = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/repos/${repoId}/tree?path=${encodeURIComponent(entry.path)}`);
+      const data = (await res.json()) as TreeEntry[];
+      setChildren(data);
+    } catch {
+      // failed to load — leave existing children so the current hierarchy stays visible
+    } finally {
+      setLoading(false);
+    }
+  }, [entry.path, repoId]);
 
   const toggle = useCallback(async () => {
     if (entry.type !== 'dir') {
@@ -20,18 +36,17 @@ function TreeNode({ entry, repoId, repoName, navigate, depth = 0 }: TreeNodeProp
       return;
     }
     if (!expanded && children === null) {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/repos/${repoId}/tree?path=${encodeURIComponent(entry.path)}`);
-        const data = (await res.json()) as TreeEntry[];
-        setChildren(data);
-      } catch {
-        // failed to load — leave children null so user can retry
-      }
-      setLoading(false);
+      await loadChildren();
     }
     setExpanded(e => !e);
-  }, [expanded, children, entry, repoId, repoName, navigate]);
+  }, [expanded, children, entry, repoId, repoName, navigate, loadChildren]);
+
+  useEffect(() => {
+    if (lastRefreshTokenRef.current === refreshToken) return;
+    lastRefreshTokenRef.current = refreshToken;
+    if (entry.type !== 'dir' || !expanded) return;
+    void loadChildren();
+  }, [entry.type, expanded, loadChildren, refreshToken]);
 
   const icon = entry.type === 'dir'
     ? (expanded ? '📂' : '📁')
@@ -58,6 +73,7 @@ function TreeNode({ entry, repoId, repoName, navigate, depth = 0 }: TreeNodeProp
           repoName={repoName}
           navigate={navigate}
           depth={depth + 1}
+          refreshToken={refreshToken}
         />
       ))}
     </>
@@ -107,9 +123,10 @@ interface SearchResultsProps {
   repoName: string;
   query: string;
   navigate: NavigateFn;
+  refreshToken: number;
 }
 
-function SearchResults({ repoId, repoName, query, navigate }: SearchResultsProps) {
+function SearchResults({ repoId, repoName, query, navigate, refreshToken }: SearchResultsProps) {
   const [data, setData] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -135,7 +152,7 @@ function SearchResults({ repoId, repoName, query, navigate }: SearchResultsProps
         setLoading(false);
       });
     return () => controller.abort();
-  }, [repoId, query]);
+  }, [repoId, query, refreshToken]);
 
   // ファイルごとにグループ化（順序を保つため Map を使う）
   const grouped = useMemo(() => {
@@ -193,9 +210,10 @@ interface TreeViewProps {
   repoId: string;
   repoName: string;
   navigate: NavigateFn;
+  refreshToken: number;
 }
 
-function TreeView({ repoId, repoName, navigate }: TreeViewProps) {
+function TreeView({ repoId, repoName, navigate, refreshToken }: TreeViewProps) {
   const [entries, setEntries] = useState<TreeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -208,7 +226,7 @@ function TreeView({ repoId, repoName, navigate }: TreeViewProps) {
         setError(e instanceof Error ? e.message : String(e));
         setLoading(false);
       });
-  }, [repoId]);
+  }, [repoId, refreshToken]);
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
   if (error) return <div className="error-msg">{error}</div>;
@@ -223,6 +241,7 @@ function TreeView({ repoId, repoName, navigate }: TreeViewProps) {
           repoName={repoName}
           navigate={navigate}
           depth={0}
+          refreshToken={refreshToken}
         />
       ))}
     </div>
@@ -233,11 +252,13 @@ interface FileTreeProps {
   repoId: string;
   repoName: string;
   navigate: NavigateFn;
+  active: boolean;
 }
 
-export default function FileTree({ repoId, repoName, navigate }: FileTreeProps) {
+export default function FileTree({ repoId, repoName, navigate, active }: FileTreeProps) {
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 300);
@@ -245,6 +266,8 @@ export default function FileTree({ repoId, repoName, navigate }: FileTreeProps) 
   }, [query]);
 
   const showSearch = debounced.length > 0;
+
+  useRefreshOnFocus(active, () => setRefreshToken(t => t + 1));
 
   return (
     <>
@@ -272,9 +295,9 @@ export default function FileTree({ repoId, repoName, navigate }: FileTreeProps) 
         )}
       </div>
       {showSearch ? (
-        <SearchResults repoId={repoId} repoName={repoName} query={debounced} navigate={navigate} />
+        <SearchResults repoId={repoId} repoName={repoName} query={debounced} navigate={navigate} refreshToken={refreshToken} />
       ) : (
-        <TreeView repoId={repoId} repoName={repoName} navigate={navigate} />
+        <TreeView repoId={repoId} repoName={repoName} navigate={navigate} refreshToken={refreshToken} />
       )}
     </>
   );

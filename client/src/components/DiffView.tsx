@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus.ts';
 
 type DiffLineType = 'added' | 'removed' | 'context';
 
@@ -60,20 +61,27 @@ interface DiffViewProps {
   repoId: string;
   filePath: string;
   staged: boolean;
+  active: boolean;
 }
 
-export default function DiffView({ repoId, filePath, staged }: DiffViewProps) {
+export default function DiffView({ repoId, filePath, staged, active }: DiffViewProps) {
   const [diff, setDiff] = useState('');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    setLoading(true);
+  const load = useCallback((showLoading = true) => {
+    if (showLoading) setLoading(true);
     const params = new URLSearchParams({ path: filePath, staged: staged.toString() });
-    fetch(`/api/repos/${repoId}/diff?${params.toString()}`)
+    return fetch(`/api/repos/${repoId}/diff?${params.toString()}`)
       .then(r => r.json() as Promise<DiffResponse>)
       .then(d => { setDiff(d.diff ?? ''); setLoading(false); })
       .catch(() => setLoading(false));
   }, [repoId, filePath, staged]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useRefreshOnFocus(active, () => load(false));
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 

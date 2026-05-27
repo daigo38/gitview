@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import FileTree from './FileTree.tsx';
+import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus.ts';
 import type { FileStatus, FileTab, LogEntry, NavigateFn, RepoDetail as RepoDetailData } from '../types.ts';
 
 function getStatusClass(x: string, y: string): string {
@@ -121,18 +122,26 @@ interface LogTabProps {
   repoId: string;
   repoName: string;
   navigate: NavigateFn;
+  active: boolean;
 }
 
-function LogTab({ repoId, repoName, navigate }: LogTabProps) {
+function LogTab({ repoId, repoName, navigate, active }: LogTabProps) {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetch(`/api/repos/${repoId}/log`)
+  const load = useCallback((showLoading = true) => {
+    if (showLoading) setLoading(true);
+    return fetch(`/api/repos/${repoId}/log`)
       .then(r => r.json() as Promise<LogEntry[]>)
       .then(data => { setLog(data); setLoading(false); })
       .catch(() => setLoading(false));
   }, [repoId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useRefreshOnFocus(active, () => load(false));
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
@@ -159,6 +168,7 @@ interface RepoDetailProps {
   repoId: string;
   repoName: string;
   navigate: NavigateFn;
+  active: boolean;
 }
 
 type RepoTab = 'status' | 'tree' | 'log';
@@ -172,7 +182,7 @@ interface RemoteResult {
   text: string;
 }
 
-export default function RepoDetail({ repoId, repoName, navigate }: RepoDetailProps) {
+export default function RepoDetail({ repoId, repoName, navigate, active }: RepoDetailProps) {
   const [detail, setDetail] = useState<RepoDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -182,8 +192,8 @@ export default function RepoDetail({ repoId, repoName, navigate }: RepoDetailPro
   const [remoteBusy, setRemoteBusy] = useState<RemoteAction | null>(null);
   const [remoteResult, setRemoteResult] = useState<RemoteResult | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     setError(null);
     try {
       const res = await fetch(`/api/repos/${repoId}`);
@@ -197,6 +207,8 @@ export default function RepoDetail({ repoId, repoName, navigate }: RepoDetailPro
   }, [repoId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useRefreshOnFocus(active, () => load(false));
 
   const operate = useCallback(async (action: RepoOperation, files: string[] | undefined) => {
     try {
@@ -438,11 +450,11 @@ export default function RepoDetail({ repoId, repoName, navigate }: RepoDetailPro
         )}
 
         {tab === 'tree' && (
-          <FileTree repoId={repoId} repoName={repoName} navigate={navigate} />
+          <FileTree repoId={repoId} repoName={repoName} navigate={navigate} active={active} />
         )}
 
         {tab === 'log' && (
-          <LogTab repoId={repoId} repoName={repoName} navigate={navigate} />
+          <LogTab repoId={repoId} repoName={repoName} navigate={navigate} active={active} />
         )}
       </div>
     </div>

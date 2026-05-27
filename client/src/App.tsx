@@ -12,9 +12,10 @@ interface ScreenContentProps {
   navigate: NavigateFn;
   goBack: () => void;
   canGoBack: boolean;
+  active: boolean;
 }
 
-function ScreenContent({ view, navigate, goBack, canGoBack }: ScreenContentProps) {
+function ScreenContent({ view, navigate, goBack, canGoBack, active }: ScreenContentProps) {
   const [copied, setCopied] = useState(false);
 
   const copyText = async (text: string): Promise<void> => {
@@ -83,10 +84,10 @@ function ScreenContent({ view, navigate, goBack, canGoBack }: ScreenContentProps
           </button>
         )}
       </header>
-      {view.type === 'repos'  && <RepoList navigate={navigate} />}
-      {view.type === 'repo'   && <RepoDetail repoId={view.repoId} repoName={view.repoName} navigate={navigate} />}
-      {view.type === 'file'   && <FileView repoId={view.repoId} filePath={view.filePath} initialTab={view.tab ?? 'file'} fileStatus={view.fileStatus} initialLine={view.line} initialQuery={view.query} />}
-      {view.type === 'commit' && <CommitView key={view.hash} repoId={view.repoId} hash={view.hash} />}
+      {view.type === 'repos'  && <RepoList navigate={navigate} active={active} />}
+      {view.type === 'repo'   && <RepoDetail repoId={view.repoId} repoName={view.repoName} navigate={navigate} active={active} />}
+      {view.type === 'file'   && <FileView repoId={view.repoId} filePath={view.filePath} initialTab={view.tab ?? 'file'} fileStatus={view.fileStatus} initialLine={view.line} initialQuery={view.query} active={active} />}
+      {view.type === 'commit' && <CommitView key={view.hash} repoId={view.repoId} hash={view.hash} active={active} />}
     </>
   );
 }
@@ -262,7 +263,7 @@ export default function App() {
 
         return (
           <div key={i} className={className} style={style}>
-            <ScreenContent view={view} navigate={navigate} goBack={goBack} canGoBack={i > 0} />
+            <ScreenContent view={view} navigate={navigate} goBack={goBack} canGoBack={i > 0} active={isCurrent && phase === 'idle'} />
           </div>
         );
       })}

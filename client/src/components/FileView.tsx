@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import DiffView from './DiffView.tsx';
+import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus.ts';
 import type { FileContentResponse, FileStatus, FileTab } from '../types.ts';
 
 const VIDEO_EXTS = new Set<string>(['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v', '.ogv']);
@@ -13,10 +14,17 @@ function getExt(filePath: string): string {
 interface MediaProps {
   repoId: string;
   filePath: string;
+  refreshToken: number;
 }
 
-function VideoPlayer({ repoId, filePath }: MediaProps) {
-  const src = `/api/repos/${repoId}/raw?path=${encodeURIComponent(filePath)}`;
+function getRawSrc(repoId: string, filePath: string, refreshToken: number): string {
+  const params = new URLSearchParams({ path: filePath });
+  if (refreshToken > 0) params.set('v', String(refreshToken));
+  return `/api/repos/${repoId}/raw?${params.toString()}`;
+}
+
+function VideoPlayer({ repoId, filePath, refreshToken }: MediaProps) {
+  const src = getRawSrc(repoId, filePath, refreshToken);
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', height: '100%' }}>
       <video
@@ -28,8 +36,8 @@ function VideoPlayer({ repoId, filePath }: MediaProps) {
   );
 }
 
-function ImageViewer({ repoId, filePath }: MediaProps) {
-  const src = `/api/repos/${repoId}/raw?path=${encodeURIComponent(filePath)}`;
+function ImageViewer({ repoId, filePath, refreshToken }: MediaProps) {
+  const src = getRawSrc(repoId, filePath, refreshToken);
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', height: '100%' }}>
       <img
@@ -80,9 +88,10 @@ interface FileContentProps {
   filePath: string;
   initialLine?: number;
   initialQuery?: string;
+  active: boolean;
 }
 
-function FileContent({ repoId, filePath, initialLine, initialQuery }: FileContentProps) {
+function FileContent({ repoId, filePath, initialLine, initialQuery, active }: FileContentProps) {
   const ext = getExt(filePath);
   const isVideo = VIDEO_EXTS.has(ext);
   const isImage = IMAGE_EXTS.has(ext);
@@ -92,18 +101,33 @@ function FileContent({ repoId, filePath, initialLine, initialQuery }: FileConten
   const [query, setQuery] = useState(initialQuery ?? '');
   const [currentMatchIdx, setCurrentMatchIdx] = useState(0);
   const [highlightLine, setHighlightLine] = useState<number | null>(initialLine ?? null);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
+  const load = useCallback((showLoading = true) => {
     if (isVideo || isImage) return;
-    setLoading(true);
-    setData(null);
-    fetch(`/api/repos/${repoId}/file?path=${encodeURIComponent(filePath)}`)
+    if (showLoading) {
+      setLoading(true);
+      setData(null);
+    }
+    return fetch(`/api/repos/${repoId}/file?path=${encodeURIComponent(filePath)}`)
       .then(r => r.json() as Promise<FileContentResponse>)
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
   }, [repoId, filePath, isVideo, isImage]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useRefreshOnFocus(active, () => {
+    if (isVideo || isImage) {
+      setRefreshToken(t => t + 1);
+      return;
+    }
+    return load(false);
+  });
 
   const lines = useMemo(
     () => (data?.content ?? '').split('\n'),
@@ -180,8 +204,8 @@ function FileContent({ repoId, filePath, initialLine, initialQuery }: FileConten
     setCurrentMatchIdx(i => (i + 1) % allMatches.length);
   }, [allMatches.length]);
 
-  if (isVideo) return <VideoPlayer repoId={repoId} filePath={filePath} />;
-  if (isImage) return <ImageViewer repoId={repoId} filePath={filePath} />;
+  if (isVideo) return <VideoPlayer repoId={repoId} filePath={filePath} refreshToken={refreshToken} />;
+  if (isImage) return <ImageViewer repoId={repoId} filePath={filePath} refreshToken={refreshToken} />;
   if (loading) return <div className="loading"><div className="spinner" /></div>;
   if (!data) return <div className="error-msg">読み込みエラー</div>;
   if (data.binary) return (
@@ -274,6 +298,7 @@ interface FileViewProps {
   fileStatus?: FileStatus;
   initialLine?: number;
   initialQuery?: string;
+  active: boolean;
 }
 
 interface TabDef {
@@ -288,6 +313,7 @@ export default function FileView({
   fileStatus,
   initialLine,
   initialQuery,
+  active,
 }: FileViewProps) {
   const hasStaged = fileStatus?.isStaged ?? false;
   const hasUnstaged = fileStatus?.isUnstaged ?? false;
@@ -327,13 +353,14 @@ export default function FileView({
             filePath={filePath}
             initialLine={initialLine}
             initialQuery={initialQuery}
+            active={active && tab === 'file'}
           />
         )}
         {tab === 'diff' && (
-          <DiffView repoId={repoId} filePath={filePath} staged={false} />
+          <DiffView repoId={repoId} filePath={filePath} staged={false} active={active && tab === 'diff'} />
         )}
         {tab === 'staged' && (
-          <DiffView repoId={repoId} filePath={filePath} staged={true} />
+          <DiffView repoId={repoId} filePath={filePath} staged={true} active={active && tab === 'staged'} />
         )}
       </div>
     </div>

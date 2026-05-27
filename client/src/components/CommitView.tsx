@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus.ts';
 import type { CommitDetail } from '../types.ts';
 
 type DiffLineType = 'added' | 'removed' | 'context';
@@ -116,21 +117,20 @@ function FileDiff({ file, defaultOpen }: FileDiffProps) {
 interface CommitViewProps {
   repoId: string;
   hash: string;
+  active: boolean;
 }
 
-export default function CommitView({ repoId, hash }: CommitViewProps) {
+export default function CommitView({ repoId, hash, active }: CommitViewProps) {
   const [data, setData] = useState<CommitDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [allOpen, setAllOpen] = useState(false);
   const [toggleKey, setToggleKey] = useState(0);
 
-  useEffect(() => {
-    setAllOpen(false);
-    setToggleKey(0);
-    setLoading(true);
+  const load = useCallback((showLoading = true) => {
+    if (showLoading) setLoading(true);
     setError(null);
-    fetch(`/api/repos/${repoId}/commits/${hash}`)
+    return fetch(`/api/repos/${repoId}/commits/${hash}`)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() as Promise<CommitDetail>; })
       .then(d => { setData(d); setLoading(false); })
       .catch((e: unknown) => {
@@ -138,6 +138,14 @@ export default function CommitView({ repoId, hash }: CommitViewProps) {
         setLoading(false);
       });
   }, [repoId, hash]);
+
+  useEffect(() => {
+    setAllOpen(false);
+    setToggleKey(0);
+    void load();
+  }, [load]);
+
+  useRefreshOnFocus(active, () => load(false));
 
   const toggleAll = useCallback(() => {
     setAllOpen(o => !o);

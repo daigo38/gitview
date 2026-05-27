@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus.ts';
 import type { NavigateFn, RepoSummary } from '../types.ts';
 
 interface StatusDotsProps {
@@ -21,9 +22,10 @@ function StatusDots({ staged, unstaged, untracked, clean }: StatusDotsProps) {
 
 interface RepoListProps {
   navigate: NavigateFn;
+  active: boolean;
 }
 
-export default function RepoList({ navigate }: RepoListProps) {
+export default function RepoList({ navigate, active }: RepoListProps) {
   const [repos, setRepos] = useState<RepoSummary[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +53,8 @@ export default function RepoList({ navigate }: RepoListProps) {
       setRefreshing(false);
     }
   }, []);
+
+  useRefreshOnFocus(active, refresh);
 
   const dirtyRepos = repos.filter(r => !r.clean);
   const cleanRepos = repos.filter(r => r.clean);
