@@ -166,11 +166,12 @@ interface SearchResultsProps {
   repoName: string;
   repoPath?: string;
   query: string;
+  pathQuery?: string;
   navigate: NavigateFn;
   refreshToken: number;
 }
 
-function SearchResults({ repoId, repoName, repoPath, query, navigate, refreshToken }: SearchResultsProps) {
+function SearchResults({ repoId, repoName, repoPath, query, pathQuery, navigate, refreshToken }: SearchResultsProps) {
   const [data, setData] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -179,7 +180,10 @@ function SearchResults({ repoId, repoName, repoPath, query, navigate, refreshTok
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    fetch(`/api/repos/${repoId}/search?q=${encodeURIComponent(query)}`, {
+    const params = new URLSearchParams({ q: query });
+    const trimmedPathQuery = pathQuery?.trim();
+    if (trimmedPathQuery) params.set('pathQuery', trimmedPathQuery);
+    fetch(`/api/repos/${repoId}/search?${params.toString()}`, {
       signal: controller.signal,
     })
       .then(async r => {
@@ -196,7 +200,7 @@ function SearchResults({ repoId, repoName, repoPath, query, navigate, refreshTok
         setLoading(false);
       });
     return () => controller.abort();
-  }, [repoId, query, refreshToken]);
+  }, [repoId, query, pathQuery, refreshToken]);
 
   // ファイルごとにグループ化（順序を保つため Map を使う）
   const grouped = useMemo(() => {
@@ -398,7 +402,6 @@ export default function FileTree({
   const [debounced, setDebounced] = useState('');
   const [nameQuery, setNameQuery] = useState('');
   const [debouncedName, setDebouncedName] = useState('');
-  const [activeSearch, setActiveSearch] = useState<'text' | 'name' | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [revealTarget, setRevealTarget] = useState<{ path: string; token: number } | null>(null);
   const textSearchRef = useRef<HTMLInputElement | null>(null);
@@ -414,8 +417,8 @@ export default function FileTree({
     return () => clearTimeout(t);
   }, [nameQuery]);
 
-  const showSearch = activeSearch === 'text' && debounced.length > 0;
-  const showNameSearch = activeSearch === 'name' && debouncedName.length > 0;
+  const showSearch = debounced.length > 0;
+  const showNameSearch = debounced.length === 0 && debouncedName.length > 0;
 
   useRefreshOnFocus(active, () => setRefreshToken(t => t + 1));
 
@@ -426,7 +429,6 @@ export default function FileTree({
     setDebounced('');
     setNameQuery('');
     setDebouncedName('');
-    setActiveSearch(null);
   }, [targetPath, targetToken]);
 
   const revealInTree = useCallback((path: string) => {
@@ -438,13 +440,11 @@ export default function FileTree({
     setDebounced('');
     setNameQuery('');
     setDebouncedName('');
-    setActiveSearch(null);
   }, []);
 
   useEffect(() => {
     if (!active || !searchFocusKind) return;
     const input = searchFocusKind === 'text' ? textSearchRef.current : nameSearchRef.current;
-    setActiveSearch(searchFocusKind);
     requestAnimationFrame(() => {
       input?.focus();
       input?.select();
@@ -463,10 +463,7 @@ export default function FileTree({
             className="search-input"
             placeholder="このリポジトリ内を全文検索…"
             value={query}
-            onChange={e => {
-              setQuery(e.target.value);
-              setActiveSearch(e.target.value ? 'text' : (nameQuery ? 'name' : null));
-            }}
+            onChange={e => setQuery(e.target.value)}
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
@@ -474,10 +471,7 @@ export default function FileTree({
           {query && (
             <button
               className="search-clear"
-              onClick={() => {
-                setQuery('');
-                setActiveSearch(nameQuery ? 'name' : null);
-              }}
+              onClick={() => setQuery('')}
               aria-label="クリア"
             >
               ×
@@ -493,10 +487,7 @@ export default function FileTree({
             className="search-input"
             placeholder="ファイル/フォルダ名で検索…"
             value={nameQuery}
-            onChange={e => {
-              setNameQuery(e.target.value);
-              setActiveSearch(e.target.value ? 'name' : (query ? 'text' : null));
-            }}
+            onChange={e => setNameQuery(e.target.value)}
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
@@ -504,10 +495,7 @@ export default function FileTree({
           {nameQuery && (
             <button
               className="search-clear"
-              onClick={() => {
-                setNameQuery('');
-                setActiveSearch(query ? 'text' : null);
-              }}
+              onClick={() => setNameQuery('')}
               aria-label="クリア"
             >
               ×
@@ -521,6 +509,7 @@ export default function FileTree({
           repoName={repoName}
           repoPath={repoPath}
           query={debounced}
+          pathQuery={debouncedName}
           navigate={navigate}
           refreshToken={refreshToken}
         />

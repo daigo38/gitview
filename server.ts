@@ -209,6 +209,7 @@ app.get('/api/repos/:id/search', async c => {
     // subPath が指定されたら、リポジトリ外への参照を弾く
     if (subPath) git.validatePathPublic(repoPath, subPath);
 
+    const pathQuery = c.req.query('pathQuery') ?? '';
     const caseSensitive = c.req.query('cs') === 'true';
     const regex = c.req.query('regex') === 'true';
     const limitParam = c.req.query('limit');
@@ -219,6 +220,7 @@ app.get('/api/repos/:id/search', async c => {
       caseSensitive,
       regex,
       subPath: subPath || undefined,
+      pathQuery,
       limit,
     });
     return c.json(result);

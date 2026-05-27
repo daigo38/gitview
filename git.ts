@@ -543,6 +543,7 @@ export async function searchInRepo(
     caseSensitive?: boolean;
     regex?: boolean;
     subPath?: string;
+    pathQuery?: string;
     limit?: number;
     maxPerFile?: number;
   } = {},
@@ -551,6 +552,7 @@ export async function searchInRepo(
 
   const limit = Math.min(Math.max(options.limit ?? 500, 1), 5000);
   const maxPerFile = Math.min(Math.max(options.maxPerFile ?? 20, 1), 200);
+  const pathQuery = options.pathQuery?.trim().toLowerCase() ?? '';
 
   const args: string[] = [
     'grep',
@@ -585,6 +587,7 @@ export async function searchInRepo(
     const secondNul = record.indexOf('\0', firstNul + 1);
     if (secondNul === -1) continue;
     const filePath = record.slice(0, firstNul);
+    if (pathQuery && !filePath.toLowerCase().includes(pathQuery)) continue;
     const lineNum = parseInt(record.slice(firstNul + 1, secondNul), 10);
     if (!Number.isFinite(lineNum)) continue;
     let text = record.slice(secondNul + 1);
