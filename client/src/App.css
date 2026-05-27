@@ -304,11 +304,30 @@ html, body, #root {
 
 .file-path {
   flex: 1;
+  min-width: 0;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-overflow: clip;
   white-space: nowrap;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(125, 133, 144, 0.18) transparent;
+  user-select: text;
+}
+.file-path::-webkit-scrollbar {
+  height: 2px;
+}
+.file-path::-webkit-scrollbar-track {
+  background: transparent;
+}
+.file-path::-webkit-scrollbar-thumb {
+  background: rgba(125, 133, 144, 0.18);
+  border-radius: 999px;
+}
+.file-path:hover::-webkit-scrollbar-thumb {
+  background: rgba(125, 133, 144, 0.28);
 }
 .file-path-dir {
   color: var(--muted);
@@ -761,14 +780,23 @@ html, body, #root {
   border-radius: 50%;
   border: none;
   font-size: 20px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  line-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
   cursor: pointer;
   flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
   font-family: -apple-system, sans-serif;
+}
+.action-btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
+  transform: translateY(-2px);
 }
 .action-btn:active { opacity: 0.6; }
 .action-btn-stage   { background: rgba(63, 185, 80, 0.15); color: var(--green); }

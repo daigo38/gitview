@@ -35,7 +35,7 @@ function DiscardButton({ onDiscard, filePath }: DiscardButtonProps) {
   return (
     <>
       <button className="action-btn action-btn-discard" onClick={handleClick} aria-label="変更を取り消す">
-        ↺
+        <span className="action-btn-icon">↺</span>
       </button>
       {open && (
         <div className="confirm-overlay" onClick={e => { e.stopPropagation(); setOpen(false); }}>
@@ -108,7 +108,7 @@ function FileItem({
         title="ファイルツリーで表示"
         aria-label="ファイルツリーで表示"
       >
-        ⌖
+        <span className="action-btn-icon">⌖</span>
       </button>
       {onDiscard && <DiscardButton onDiscard={() => onDiscard(file.path)} filePath={file.path} />}
       <button
@@ -116,7 +116,7 @@ function FileItem({
         onClick={e => { e.stopPropagation(); onAction(file.path); }}
         aria-label={actionLabel === '+' ? 'ステージ' : 'アンステージ'}
       >
-        {actionLabel}
+        <span className="action-btn-icon">{actionLabel}</span>
       </button>
       <span className="chevron">›</span>
     </div>
