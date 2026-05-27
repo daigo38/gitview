@@ -255,15 +255,17 @@ export default function App() {
           style = { transform: prevTransform, transition: prevTransition };
           className = 'screen screen-bg';
         } else {
-          // Older history items: keep mounted so state (tab, expanded folders, scroll)
-          // is preserved when the user navigates back, but hide from view.
+          // Older history items are only placeholders. Keeping their contents mounted
+          // can retain large file/diff payloads in browser memory across deep navigation.
           style = { transform: 'translateX(-30%)', visibility: 'hidden' };
           className = 'screen screen-bg';
         }
 
         return (
           <div key={i} className={className} style={style}>
-            <ScreenContent view={view} navigate={navigate} goBack={goBack} canGoBack={i > 0} active={isCurrent && phase === 'idle'} />
+            {(isCurrent || isPrev) && (
+              <ScreenContent view={view} navigate={navigate} goBack={goBack} canGoBack={i > 0} active={isCurrent && phase === 'idle'} />
+            )}
           </div>
         );
       })}
