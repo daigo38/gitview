@@ -195,6 +195,7 @@ interface RepoDetailProps {
 
 type RepoTab = 'status' | 'tree' | 'log';
 type RepoOperation = 'stage' | 'unstage' | 'discard' | 'clean';
+type TreeSearchFocusKind = 'text' | 'name';
 
 type RemoteAction = 'push' | 'pull';
 
@@ -210,6 +211,7 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<RepoTab>('status');
   const [treeTarget, setTreeTarget] = useState<{ path: string; token: number } | null>(null);
+  const [treeSearchFocus, setTreeSearchFocus] = useState<{ kind: TreeSearchFocusKind; token: number } | null>(null);
   const [commitMsg, setCommitMsg] = useState('');
   const [committing, setCommitting] = useState(false);
   const [remoteBusy, setRemoteBusy] = useState<RemoteAction | null>(null);
@@ -251,6 +253,39 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
   const unstage = useCallback((files: string[] | undefined) => operate('unstage', files), [operate]);
   const discard = useCallback((files: string[] | undefined) => operate('discard', files), [operate]);
   const clean   = useCallback((files: string[] | undefined) => operate('clean',   files), [operate]);
+
+  const focusTreeSearch = useCallback((kind: TreeSearchFocusKind) => {
+    setTreeSearchFocus(current => ({
+      kind,
+      token: (current?.token ?? 0) + 1,
+    }));
+    setTab('tree');
+  }, []);
+
+  useEffect(() => {
+    if (!active) return;
+
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented || e.isComposing) return;
+      const modifier = e.metaKey || e.ctrlKey;
+      if (!modifier || e.altKey) return;
+
+      const key = e.key.toLowerCase();
+      if (e.shiftKey && key === 'f') {
+        e.preventDefault();
+        focusTreeSearch('text');
+        return;
+      }
+
+      if (!e.shiftKey && key === 'p') {
+        e.preventDefault();
+        focusTreeSearch('name');
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [active, focusTreeSearch]);
 
   const showInTree = useCallback((filePath: string) => {
     setTreeTarget(current => ({
@@ -496,6 +531,8 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
             active={active}
             targetPath={treeTarget?.path}
             targetToken={treeTarget?.token ?? 0}
+            searchFocusKind={treeSearchFocus?.kind}
+            searchFocusToken={treeSearchFocus?.token ?? 0}
           />
         )}
 

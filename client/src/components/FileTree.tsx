@@ -379,6 +379,8 @@ interface FileTreeProps {
   active: boolean;
   targetPath?: string;
   targetToken?: number;
+  searchFocusKind?: 'text' | 'name';
+  searchFocusToken?: number;
 }
 
 export default function FileTree({
@@ -389,6 +391,8 @@ export default function FileTree({
   active,
   targetPath,
   targetToken = 0,
+  searchFocusKind,
+  searchFocusToken = 0,
 }: FileTreeProps) {
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -397,6 +401,8 @@ export default function FileTree({
   const [activeSearch, setActiveSearch] = useState<'text' | 'name' | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [revealTarget, setRevealTarget] = useState<{ path: string; token: number } | null>(null);
+  const textSearchRef = useRef<HTMLInputElement | null>(null);
+  const nameSearchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 300);
@@ -435,12 +441,23 @@ export default function FileTree({
     setActiveSearch(null);
   }, []);
 
+  useEffect(() => {
+    if (!active || !searchFocusKind) return;
+    const input = searchFocusKind === 'text' ? textSearchRef.current : nameSearchRef.current;
+    setActiveSearch(searchFocusKind);
+    requestAnimationFrame(() => {
+      input?.focus();
+      input?.select();
+    });
+  }, [active, searchFocusKind, searchFocusToken]);
+
   return (
     <>
       <div className="tree-search-bars">
         <div className="search-bar">
           <span className="search-icon">🔎</span>
           <input
+            ref={textSearchRef}
             type="search"
             inputMode="search"
             className="search-input"
@@ -470,6 +487,7 @@ export default function FileTree({
         <div className="search-bar search-bar-secondary">
           <span className="search-icon">🔎</span>
           <input
+            ref={nameSearchRef}
             type="search"
             inputMode="search"
             className="search-input"
