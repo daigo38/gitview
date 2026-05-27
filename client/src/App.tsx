@@ -22,6 +22,36 @@ function isNavigationState(value: unknown): value is NavigationState {
   return candidate.key === NAV_STATE_KEY && Array.isArray(candidate.stack) && typeof candidate.index === 'number';
 }
 
+const HORIZONTAL_SCROLL_NAV_BLOCK_SELECTOR = '.diff-container, .file-content';
+
+function isFromHorizontalScrollRegion(target: EventTarget | null, root: HTMLElement): boolean {
+  if (!(target instanceof Element)) return false;
+
+  let el: Element | null = target;
+  while (el) {
+    if (el.matches(HORIZONTAL_SCROLL_NAV_BLOCK_SELECTOR)) return true;
+
+    if (el instanceof HTMLElement) {
+      const overflowX = window.getComputedStyle(el).overflowX;
+      const scrollsHorizontally = el.scrollWidth > el.clientWidth + 1;
+      if (scrollsHorizontally && ['auto', 'scroll', 'overlay'].includes(overflowX)) {
+        return true;
+      }
+    }
+
+    if (el === root) break;
+    el = el.parentElement;
+  }
+
+  return false;
+}
+
+function resetWheelGesture(gesture: WheelGesture): void {
+  gesture.x = 0;
+  gesture.y = 0;
+  gesture.lastAt = 0;
+}
+
 function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => (
     typeof window !== 'undefined' ? window.matchMedia(query).matches : false
@@ -299,13 +329,18 @@ export default function App() {
       const absY = Math.abs(e.deltaY);
       if (absX < 8 || absX < absY * 1.25) return;
 
+      const gesture = wheelGestureRef.current;
+      if (isFromHorizontalScrollRegion(e.target, el)) {
+        resetWheelGesture(gesture);
+        return;
+      }
+
       const now = Date.now();
       if (now - lastWheelNavigationAtRef.current < 650) {
         e.preventDefault();
         return;
       }
 
-      const gesture = wheelGestureRef.current;
       if (now - gesture.lastAt > 220) {
         gesture.x = 0;
         gesture.y = 0;
