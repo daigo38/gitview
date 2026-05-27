@@ -35,6 +35,47 @@ html, body, #root {
   height: 100svh;
 }
 
+.app-desktop {
+  display: flex;
+  background: #090d13;
+}
+
+.desktop-pane {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.desktop-pane-sidebar {
+  flex: 0 0 clamp(360px, 34vw, 520px);
+  border-right: 1px solid var(--border);
+}
+
+.desktop-pane-detail {
+  flex: 1;
+}
+
+.desktop-empty-pane {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(125, 133, 144, 0.42);
+  background:
+    linear-gradient(90deg, rgba(48, 54, 61, 0.22) 1px, transparent 1px),
+    linear-gradient(rgba(48, 54, 61, 0.18) 1px, transparent 1px),
+    var(--bg);
+  background-size: 28px 28px;
+}
+
+.desktop-empty-title {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
 /* Screen layer */
 .screen {
   position: absolute;
@@ -199,6 +240,20 @@ html, body, #root {
 .list-item:active { background: var(--bg3); }
 .list-item.no-tap { cursor: default; }
 .list-item.no-tap:active { background: none; }
+
+@media (hover: hover) {
+  .list-item:hover,
+  .tree-item:hover,
+  .log-item:hover,
+  .search-file-header:hover,
+  .search-match:hover {
+    background: var(--bg3);
+  }
+
+  .list-item.no-tap:hover {
+    background: none;
+  }
+}
 
 /* Repo list item */
 .repo-name {

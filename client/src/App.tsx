@@ -7,6 +7,49 @@ import type { NavigateFn, View } from './types.ts';
 
 type Phase = 'idle' | 'entering' | 'exiting' | 'swiping';
 
+const DESKTOP_QUERY = '(min-width: 960px)';
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => (
+    typeof window !== 'undefined' ? window.matchMedia(query).matches : false
+  ));
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const onChange = () => setMatches(media.matches);
+    onChange();
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, [query]);
+
+  return matches;
+}
+
+function getViewKey(view: View): string {
+  switch (view.type) {
+    case 'repos':
+      return 'repos';
+    case 'repo':
+      return `repo:${view.repoId}`;
+    case 'file':
+      return [
+        'file',
+        view.repoId,
+        view.filePath,
+        view.tab ?? '',
+        view.line ?? '',
+        view.query ?? '',
+      ].join(':');
+    case 'commit':
+      return `commit:${view.repoId}:${view.hash}`;
+    default: {
+      const _exhaustive: never = view;
+      void _exhaustive;
+      return 'unknown';
+    }
+  }
+}
+
 interface ScreenContentProps {
   view: View;
   navigate: NavigateFn;
@@ -103,26 +146,43 @@ export default function App() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [swipeX, setSwipeX] = useState(0);
   const [swipeSettle, setSwipeSettle] = useState(false);
+  const isDesktopLayout = useMediaQuery(DESKTOP_QUERY);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Refs for use inside passive-false event handlers (avoid stale closures)
   const phaseRef = useRef<Phase>('idle');
   const historyLenRef = useRef<number>(1);
+  const desktopLayoutRef = useRef<boolean>(false);
   const swipeActiveRef = useRef<boolean>(false);
   const touchOriginRef = useRef<TouchOrigin | null>(null);
 
   phaseRef.current = phase;
   historyLenRef.current = history.length;
+  desktopLayoutRef.current = isDesktopLayout;
 
   const navigate = useCallback<NavigateFn>((v) => {
-    if (phaseRef.current !== 'idle') return;
+    if (!desktopLayoutRef.current && phaseRef.current !== 'idle') return;
     setHistory(h => [...h, v]);
+    if (desktopLayoutRef.current) return;
     setPhase('entering');
     window.setTimeout(() => setPhase('idle'), 340);
   }, []);
 
+  const navigateFromSidebar = useCallback<NavigateFn>((v) => {
+    setHistory(h => {
+      if (h.length <= 1) return [...h, v];
+      return [...h.slice(0, -1), v];
+    });
+  }, []);
+
   const goBack = useCallback(() => {
-    if (historyLenRef.current <= 1 || phaseRef.current !== 'idle') return;
+    if (historyLenRef.current <= 1) return;
+    if (desktopLayoutRef.current) {
+      setHistory(h => h.slice(0, -1));
+      setPhase('idle');
+      return;
+    }
+    if (phaseRef.current !== 'idle') return;
     setPhase('exiting');
     window.setTimeout(() => {
       setHistory(h => h.slice(0, -1));
@@ -228,6 +288,41 @@ export default function App() {
         : 'none';
 
   if (history.length === 0) return null;
+
+  if (isDesktopLayout) {
+    const sidebarView = history.length > 1 ? history[history.length - 2] : history[0];
+    const detailView = history.length > 1 ? history[history.length - 1] : null;
+
+    return (
+      <div className="app app-desktop" ref={containerRef}>
+        <section className="desktop-pane desktop-pane-sidebar" key={`sidebar-${getViewKey(sidebarView)}`}>
+          <ScreenContent
+            view={sidebarView}
+            navigate={navigateFromSidebar}
+            goBack={goBack}
+            canGoBack={false}
+            active={true}
+          />
+        </section>
+        <section className="desktop-pane desktop-pane-detail">
+          {detailView ? (
+            <ScreenContent
+              key={`detail-${getViewKey(detailView)}`}
+              view={detailView}
+              navigate={navigate}
+              goBack={goBack}
+              canGoBack={history.length > 1}
+              active={true}
+            />
+          ) : (
+            <div className="desktop-empty-pane">
+              <div className="desktop-empty-title">GitView</div>
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="app" ref={containerRef}>
