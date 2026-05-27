@@ -73,6 +73,17 @@ export interface CommitDetail {
   diff: string;
 }
 
+export interface SearchMatch {
+  path: string;
+  line: number;
+  text: string;
+}
+
+export interface SearchResult {
+  matches: SearchMatch[];
+  truncated: boolean;
+}
+
 function execGit(args: readonly string[], cwd: string, timeout = 15000): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -82,6 +93,28 @@ function execGit(args: readonly string[], cwd: string, timeout = 15000): Promise
       (err: ExecFileException | null, stdout: string, stderr: string) => {
         if (err) reject(new Error(stderr || err.message));
         else resolve(stdout);
+      },
+    );
+  });
+}
+
+// git grep は「マッチなし」で exit 1 を返すので、それをエラー扱いしない版
+function execGitGrep(args: readonly string[], cwd: string, timeout = 30000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'git',
+      ['-c', 'core.quotePath=false', ...args],
+      { cwd, maxBuffer: 50 * 1024 * 1024, timeout },
+      (err: ExecFileException | null, stdout: string, stderr: string) => {
+        if (err && err.code === 1 && !stderr) {
+          resolve('');
+          return;
+        }
+        if (err) {
+          reject(new Error(stderr || err.message));
+          return;
+        }
+        resolve(stdout);
       },
     );
   });
@@ -379,6 +412,75 @@ function validateRelativePaths(files: readonly string[] | undefined): void {
     const norm = path.normalize(f);
     if (path.isAbsolute(norm) || norm.startsWith('..')) throw new Error('Path traversal detected');
   }
+}
+
+// `git grep` で全文検索。
+// - ファイルシステム walk せず git index を使うので速い
+// - `.gitignore` を自動で尊重し、`--untracked` で未追跡ファイルも対象（ignored は除外される）
+// - `-I` でバイナリ除外、`-z` でパスを NUL 区切りにして安全にパース
+// - `-F` 既定でリテラル検索（正規表現はオプション）
+// - 各ファイル最大 `--max-count`、全体は `limit` で打ち切り
+export async function searchInRepo(
+  repoPath: string,
+  query: string,
+  options: {
+    caseSensitive?: boolean;
+    regex?: boolean;
+    subPath?: string;
+    limit?: number;
+    maxPerFile?: number;
+  } = {},
+): Promise<SearchResult> {
+  if (!query) return { matches: [], truncated: false };
+
+  const limit = Math.min(Math.max(options.limit ?? 500, 1), 5000);
+  const maxPerFile = Math.min(Math.max(options.maxPerFile ?? 20, 1), 200);
+
+  const args: string[] = [
+    'grep',
+    '-I',                      // バイナリ除外
+    '-n',                      // 行番号
+    '-z',                      // パスを NUL 区切り
+    '--no-color',
+    '--untracked',             // 未追跡ファイルも検索（ignored は自動除外）
+    `--max-count=${maxPerFile}`,
+  ];
+  if (!options.caseSensitive) args.push('-i');
+  if (!options.regex) args.push('-F'); // リテラル検索
+  args.push('-e', query);
+
+  if (options.subPath) {
+    // `--` 以降は pathspec として安全
+    args.push('--', options.subPath);
+  }
+
+  const out = await execGitGrep(args, repoPath);
+  if (!out) return { matches: [], truncated: false };
+
+  // 出力フォーマット: `<path>\0<line>\0<text>\n`
+  // （`-z` + `-n` でフィールド区切りも NUL になる）
+  const matches: SearchMatch[] = [];
+  let truncated = false;
+  const records = out.split('\n');
+  for (const record of records) {
+    if (!record) continue;
+    const firstNul = record.indexOf('\0');
+    if (firstNul === -1) continue;
+    const secondNul = record.indexOf('\0', firstNul + 1);
+    if (secondNul === -1) continue;
+    const filePath = record.slice(0, firstNul);
+    const lineNum = parseInt(record.slice(firstNul + 1, secondNul), 10);
+    if (!Number.isFinite(lineNum)) continue;
+    let text = record.slice(secondNul + 1);
+    // ペイロード肥大対策: 1 行 500 文字で切る
+    if (text.length > 500) text = text.slice(0, 500) + '…';
+    matches.push({ path: filePath, line: lineNum, text });
+    if (matches.length >= limit) {
+      truncated = true;
+      break;
+    }
+  }
+  return { matches, truncated };
 }
 
 export async function getCommitDetail(repoPath: string, hash: string): Promise<CommitDetail> {

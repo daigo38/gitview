@@ -85,7 +85,7 @@ function ScreenContent({ view, navigate, goBack, canGoBack }: ScreenContentProps
       </header>
       {view.type === 'repos'  && <RepoList navigate={navigate} />}
       {view.type === 'repo'   && <RepoDetail repoId={view.repoId} repoName={view.repoName} navigate={navigate} />}
-      {view.type === 'file'   && <FileView repoId={view.repoId} filePath={view.filePath} initialTab={view.tab ?? 'file'} fileStatus={view.fileStatus} />}
+      {view.type === 'file'   && <FileView repoId={view.repoId} filePath={view.filePath} initialTab={view.tab ?? 'file'} fileStatus={view.fileStatus} initialLine={view.line} initialQuery={view.query} />}
       {view.type === 'commit' && <CommitView key={view.hash} repoId={view.repoId} hash={view.hash} />}
     </>
   );

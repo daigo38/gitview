@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import DiffView from './DiffView.tsx';
 import type { FileContentResponse, FileStatus, FileTab } from '../types.ts';
 
@@ -41,18 +41,59 @@ function ImageViewer({ repoId, filePath }: MediaProps) {
   );
 }
 
+interface Match {
+  lineIdx: number;     // 0-based
+  start: number;       // 列開始
+  end: number;
+  matchIdx: number;    // 全マッチ中の通し番号
+}
+
+// 1 行を { query にマッチした箇所 } 付きで描画する
+function renderLine(
+  line: string,
+  lineMatches: Match[],
+  currentMatchIdx: number,
+): React.ReactNode {
+  if (lineMatches.length === 0) return line || ' ';
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  for (const m of lineMatches) {
+    if (m.start > cursor) parts.push(line.slice(cursor, m.start));
+    const isCurrent = m.matchIdx === currentMatchIdx;
+    parts.push(
+      <mark
+        key={`m-${m.matchIdx}`}
+        id={`match-${m.matchIdx}`}
+        className={isCurrent ? 'search-hit search-hit-current' : 'search-hit'}
+      >
+        {line.slice(m.start, m.end)}
+      </mark>,
+    );
+    cursor = m.end;
+  }
+  if (cursor < line.length) parts.push(line.slice(cursor));
+  return <>{parts}</>;
+}
+
 interface FileContentProps {
   repoId: string;
   filePath: string;
+  initialLine?: number;
+  initialQuery?: string;
 }
 
-function FileContent({ repoId, filePath }: FileContentProps) {
+function FileContent({ repoId, filePath, initialLine, initialQuery }: FileContentProps) {
   const ext = getExt(filePath);
   const isVideo = VIDEO_EXTS.has(ext);
   const isImage = IMAGE_EXTS.has(ext);
 
   const [data, setData] = useState<FileContentResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState(initialQuery ?? '');
+  const [currentMatchIdx, setCurrentMatchIdx] = useState(0);
+  const [highlightLine, setHighlightLine] = useState<number | null>(initialLine ?? null);
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (isVideo || isImage) return;
@@ -64,6 +105,81 @@ function FileContent({ repoId, filePath }: FileContentProps) {
       .catch(() => setLoading(false));
   }, [repoId, filePath, isVideo, isImage]);
 
+  const lines = useMemo(
+    () => (data?.content ?? '').split('\n'),
+    [data],
+  );
+
+  // クエリにマッチする全箇所を列挙（行ごとに lineMatches も同時に作る）
+  const { allMatches, byLine } = useMemo(() => {
+    const all: Match[] = [];
+    const map = new Map<number, Match[]>();
+    const q = query.trim();
+    if (!q || !data || data.binary) return { allMatches: all, byLine: map };
+    const lq = q.toLowerCase();
+    let counter = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      const lower = line.toLowerCase();
+      let start = 0;
+      let lineHits: Match[] | undefined;
+      while (true) {
+        const idx = lower.indexOf(lq, start);
+        if (idx === -1) break;
+        const m: Match = { lineIdx: i, start: idx, end: idx + lq.length, matchIdx: counter++ };
+        all.push(m);
+        if (!lineHits) {
+          lineHits = [];
+          map.set(i, lineHits);
+        }
+        lineHits.push(m);
+        start = idx + lq.length;
+      }
+    }
+    return { allMatches: all, byLine: map };
+  }, [lines, query, data]);
+
+  // クエリ変更時: 一旦先頭マッチへ
+  useEffect(() => {
+    setCurrentMatchIdx(0);
+  }, [query]);
+
+  // 行ジャンプ: data ロード完了 + initialLine 指定で対象行へスクロール
+  useEffect(() => {
+    if (loading || !data || data.binary) return;
+    if (initialLine && initialLine >= 1 && initialLine <= lines.length) {
+      // レイアウト確定後に scrollIntoView
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`fline-${initialLine}`);
+        el?.scrollIntoView({ block: 'center' });
+        setHighlightLine(initialLine);
+        // 1.6 秒後にハイライト消去
+        window.setTimeout(() => setHighlightLine(null), 1600);
+      });
+    }
+    // initialLine は初回ロード時のみ反映
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, data]);
+
+  // currentMatchIdx 変更時に該当マッチへスクロール
+  useEffect(() => {
+    if (allMatches.length === 0) return;
+    const m = allMatches[currentMatchIdx];
+    if (!m) return;
+    const el = document.getElementById(`match-${m.matchIdx}`);
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [currentMatchIdx, allMatches]);
+
+  const gotoPrev = useCallback(() => {
+    if (allMatches.length === 0) return;
+    setCurrentMatchIdx(i => (i - 1 + allMatches.length) % allMatches.length);
+  }, [allMatches.length]);
+
+  const gotoNext = useCallback(() => {
+    if (allMatches.length === 0) return;
+    setCurrentMatchIdx(i => (i + 1) % allMatches.length);
+  }, [allMatches.length]);
+
   if (isVideo) return <VideoPlayer repoId={repoId} filePath={filePath} />;
   if (isImage) return <ImageViewer repoId={repoId} filePath={filePath} />;
   if (loading) return <div className="loading"><div className="spinner" /></div>;
@@ -74,19 +190,74 @@ function FileContent({ repoId, filePath }: FileContentProps) {
     </div>
   );
 
-  const lines = (data.content ?? '').split('\n');
+  const hasQuery = query.trim().length > 0;
+  const matchCount = allMatches.length;
 
   return (
-    <div className="diff-container">
-      <div className="file-content" style={{ padding: 0 }}>
-        {lines.map((line, i) => (
-          <div className="diff-line" key={i}>
-            <span className="diff-line-num">{i + 1}</span>
-            <span className="diff-line-content">{line || ' '}</span>
-          </div>
-        ))}
+    <>
+      <div className="file-search-bar">
+        <span className="search-icon">🔎</span>
+        <input
+          type="search"
+          inputMode="search"
+          className="search-input"
+          placeholder="ファイル内を検索…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+        />
+        {hasQuery && (
+          <>
+            <span className="file-search-count">
+              {matchCount > 0 ? `${currentMatchIdx + 1}/${matchCount}` : '0'}
+            </span>
+            <button
+              className="file-search-nav"
+              onClick={gotoPrev}
+              disabled={matchCount === 0}
+              aria-label="前のマッチ"
+            >↑</button>
+            <button
+              className="file-search-nav"
+              onClick={gotoNext}
+              disabled={matchCount === 0}
+              aria-label="次のマッチ"
+            >↓</button>
+            <button
+              className="search-clear"
+              onClick={() => setQuery('')}
+              aria-label="クリア"
+            >×</button>
+          </>
+        )}
       </div>
-    </div>
+      <div className="diff-container" ref={scrollRef}>
+        <div className="file-content" style={{ padding: 0 }}>
+          {lines.map((line, i) => {
+            const lineNum = i + 1;
+            const lineMatches = byLine.get(i) ?? [];
+            const isCurrentMatchLine =
+              hasQuery && allMatches[currentMatchIdx]?.lineIdx === i;
+            const isHighlight = highlightLine === lineNum;
+            const cls = [
+              'diff-line',
+              isCurrentMatchLine ? 'diff-line-current-match' : '',
+              isHighlight ? 'diff-line-jump' : '',
+            ].filter(Boolean).join(' ');
+            return (
+              <div className={cls} key={i} id={`fline-${lineNum}`}>
+                <span className="diff-line-num">{lineNum}</span>
+                <span className="diff-line-content">
+                  {renderLine(line, lineMatches, allMatches[currentMatchIdx]?.matchIdx ?? -1)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -101,6 +272,8 @@ interface FileViewProps {
   filePath: string;
   initialTab: FileTab;
   fileStatus?: FileStatus;
+  initialLine?: number;
+  initialQuery?: string;
 }
 
 interface TabDef {
@@ -108,7 +281,14 @@ interface TabDef {
   label: string;
 }
 
-export default function FileView({ repoId, filePath, initialTab, fileStatus }: FileViewProps) {
+export default function FileView({
+  repoId,
+  filePath,
+  initialTab,
+  fileStatus,
+  initialLine,
+  initialQuery,
+}: FileViewProps) {
   const hasStaged = fileStatus?.isStaged ?? false;
   const hasUnstaged = fileStatus?.isUnstaged ?? false;
   const isUntracked = fileStatus?.isUntracked ?? false;
@@ -142,7 +322,12 @@ export default function FileView({ repoId, filePath, initialTab, fileStatus }: F
 
       <div className="scroll-area">
         {tab === 'file' && (
-          <FileContent repoId={repoId} filePath={filePath} />
+          <FileContent
+            repoId={repoId}
+            filePath={filePath}
+            initialLine={initialLine}
+            initialQuery={initialQuery}
+          />
         )}
         {tab === 'diff' && (
           <DiffView repoId={repoId} filePath={filePath} staged={false} />

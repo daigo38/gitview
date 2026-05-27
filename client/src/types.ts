@@ -51,6 +51,17 @@ export interface FileContentResponse {
   size: number;
 }
 
+export interface SearchMatch {
+  path: string;
+  line: number;
+  text: string;
+}
+
+export interface SearchResult {
+  matches: SearchMatch[];
+  truncated: boolean;
+}
+
 export interface CommitDetail {
   fullHash: string;
   shortHash: string;
@@ -78,6 +89,8 @@ export type View =
       filePath: string;
       tab?: FileTab;
       fileStatus?: FileStatus;
+      line?: number;
+      query?: string;
     }
   | {
       type: 'commit';

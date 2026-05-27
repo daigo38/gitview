@@ -188,6 +188,34 @@ app.get('/api/repos/:id/raw', async c => {
   }
 });
 
+app.get('/api/repos/:id/search', async c => {
+  try {
+    const repoPath = validateRepoId(c.req.param('id'));
+    const q = c.req.query('q') ?? '';
+    if (!q.trim()) return c.json({ matches: [], truncated: false });
+
+    const subPath = c.req.query('path') ?? '';
+    // subPath が指定されたら、リポジトリ外への参照を弾く
+    if (subPath) git.validatePathPublic(repoPath, subPath);
+
+    const caseSensitive = c.req.query('cs') === 'true';
+    const regex = c.req.query('regex') === 'true';
+    const limitParam = c.req.query('limit');
+    const parsed = limitParam ? parseInt(limitParam, 10) : NaN;
+    const limit = Number.isFinite(parsed) ? parsed : 500;
+
+    const result = await git.searchInRepo(repoPath, q, {
+      caseSensitive,
+      regex,
+      subPath: subPath || undefined,
+      limit,
+    });
+    return c.json(result);
+  } catch (e) {
+    return errorResponse(c, e, 400);
+  }
+});
+
 app.get('/api/repos/:id/diff', async c => {
   try {
     const repoPath = validateRepoId(c.req.param('id'));
