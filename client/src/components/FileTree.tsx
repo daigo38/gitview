@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus.ts';
-import type { NavigateFn, SearchMatch, SearchResult, TreeEntry } from '../types.ts';
+import type { NavigateFn, SearchMatch, SearchResult, TreeEntry, TreeSearchResult } from '../types.ts';
 
 interface TreeNodeProps {
   entry: TreeEntry;
@@ -73,6 +73,12 @@ function TreeNode({
     setExpanded(true);
     if (children === null) void loadChildren();
   }, [children, isTargetAncestor, loadChildren, targetToken]);
+
+  useEffect(() => {
+    if (!isTarget || entry.type !== 'dir') return;
+    setExpanded(true);
+    if (children === null) void loadChildren();
+  }, [children, entry.type, isTarget, loadChildren, targetToken]);
 
   useEffect(() => {
     if (!isTarget) return;
@@ -244,6 +250,71 @@ function SearchResults({ repoId, repoName, repoPath, query, navigate, refreshTok
   );
 }
 
+interface NameSearchResultsProps {
+  repoId: string;
+  query: string;
+  refreshToken: number;
+  onRevealPath: (path: string) => void;
+}
+
+function NameSearchResults({ repoId, query, refreshToken, onRevealPath }: NameSearchResultsProps) {
+  const [data, setData] = useState<TreeSearchResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    fetch(`/api/repos/${repoId}/tree-search?q=${encodeURIComponent(query)}`, {
+      signal: controller.signal,
+    })
+      .then(async r => {
+        if (!r.ok) {
+          const body = (await r.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(body?.error ?? `HTTP ${r.status}`);
+        }
+        return r.json() as Promise<TreeSearchResult>;
+      })
+      .then(d => { setData(d); setLoading(false); })
+      .catch((e: unknown) => {
+        if (e instanceof Error && e.name === 'AbortError') return;
+        setError(e instanceof Error ? e.message : String(e));
+        setLoading(false);
+      });
+    return () => controller.abort();
+  }, [repoId, query, refreshToken]);
+
+  if (loading) return <div className="loading"><div className="spinner" /></div>;
+  if (error) return <div className="error-msg">{error}</div>;
+  if (!data || data.matches.length === 0) {
+    return <div className="empty">マッチなし</div>;
+  }
+
+  return (
+    <div className="list">
+      <div className="search-summary">
+        {data.matches.length} 件
+        {data.truncated && ' (一部のみ表示)'}
+      </div>
+      {data.matches.map(entry => (
+        <div
+          key={entry.path}
+          className={`tree-search-result ${entry.type}`}
+          onClick={() => onRevealPath(entry.path)}
+        >
+          <span className="tree-icon">{entry.type === 'dir' ? '📁' : getFileIcon(entry.name)}</span>
+          <span className="tree-search-path">
+            {highlightMatch(entry.path, query)}
+            {entry.type === 'dir' ? '/' : ''}
+          </span>
+          <span className="chevron">›</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface TreeViewProps {
   repoId: string;
   repoName: string;
@@ -321,47 +392,110 @@ export default function FileTree({
 }: FileTreeProps) {
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [nameQuery, setNameQuery] = useState('');
+  const [debouncedName, setDebouncedName] = useState('');
+  const [activeSearch, setActiveSearch] = useState<'text' | 'name' | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [revealTarget, setRevealTarget] = useState<{ path: string; token: number } | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 300);
     return () => clearTimeout(t);
   }, [query]);
 
-  const showSearch = debounced.length > 0;
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedName(nameQuery.trim()), 200);
+    return () => clearTimeout(t);
+  }, [nameQuery]);
+
+  const showSearch = activeSearch === 'text' && debounced.length > 0;
+  const showNameSearch = activeSearch === 'name' && debouncedName.length > 0;
 
   useRefreshOnFocus(active, () => setRefreshToken(t => t + 1));
 
   useEffect(() => {
     if (!targetPath) return;
+    setRevealTarget({ path: targetPath, token: targetToken });
     setQuery('');
     setDebounced('');
+    setNameQuery('');
+    setDebouncedName('');
+    setActiveSearch(null);
   }, [targetPath, targetToken]);
+
+  const revealInTree = useCallback((path: string) => {
+    setRevealTarget(current => ({
+      path,
+      token: (current?.token ?? 0) + 1,
+    }));
+    setQuery('');
+    setDebounced('');
+    setNameQuery('');
+    setDebouncedName('');
+    setActiveSearch(null);
+  }, []);
 
   return (
     <>
-      <div className="search-bar">
-        <span className="search-icon">🔎</span>
-        <input
-          type="search"
-          inputMode="search"
-          className="search-input"
-          placeholder="このリポジトリ内を全文検索…"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-        />
-        {query && (
-          <button
-            className="search-clear"
-            onClick={() => setQuery('')}
-            aria-label="クリア"
-          >
-            ×
-          </button>
-        )}
+      <div className="tree-search-bars">
+        <div className="search-bar">
+          <span className="search-icon">🔎</span>
+          <input
+            type="search"
+            inputMode="search"
+            className="search-input"
+            placeholder="このリポジトリ内を全文検索…"
+            value={query}
+            onChange={e => {
+              setQuery(e.target.value);
+              setActiveSearch(e.target.value ? 'text' : (nameQuery ? 'name' : null));
+            }}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+          {query && (
+            <button
+              className="search-clear"
+              onClick={() => {
+                setQuery('');
+                setActiveSearch(nameQuery ? 'name' : null);
+              }}
+              aria-label="クリア"
+            >
+              ×
+            </button>
+          )}
+        </div>
+        <div className="search-bar search-bar-secondary">
+          <span className="search-icon">🔎</span>
+          <input
+            type="search"
+            inputMode="search"
+            className="search-input"
+            placeholder="ファイル/フォルダ名で検索…"
+            value={nameQuery}
+            onChange={e => {
+              setNameQuery(e.target.value);
+              setActiveSearch(e.target.value ? 'name' : (query ? 'text' : null));
+            }}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+          {nameQuery && (
+            <button
+              className="search-clear"
+              onClick={() => {
+                setNameQuery('');
+                setActiveSearch(query ? 'text' : null);
+              }}
+              aria-label="クリア"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
       {showSearch ? (
         <SearchResults
@@ -372,6 +506,13 @@ export default function FileTree({
           navigate={navigate}
           refreshToken={refreshToken}
         />
+      ) : showNameSearch ? (
+        <NameSearchResults
+          repoId={repoId}
+          query={debouncedName}
+          refreshToken={refreshToken}
+          onRevealPath={revealInTree}
+        />
       ) : (
         <TreeView
           repoId={repoId}
@@ -379,8 +520,8 @@ export default function FileTree({
           repoPath={repoPath}
           navigate={navigate}
           refreshToken={refreshToken}
-          targetPath={targetPath}
-          targetToken={targetToken}
+          targetPath={revealTarget?.path}
+          targetToken={revealTarget?.token ?? 0}
         />
       )}
     </>

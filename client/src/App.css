@@ -244,6 +244,7 @@ html, body, #root {
 @media (hover: hover) {
   .list-item:hover,
   .tree-item:hover,
+  .tree-search-result:hover,
   .log-item:hover,
   .search-file-header:hover,
   .search-match:hover {
@@ -522,6 +523,11 @@ html, body, #root {
 }
 
 /* Search */
+.tree-search-bars {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
 .search-bar {
   display: flex;
   align-items: center;
@@ -532,6 +538,13 @@ html, body, #root {
   position: sticky;
   top: 0;
   z-index: 1;
+}
+.tree-search-bars .search-bar {
+  position: static;
+}
+.search-bar-secondary {
+  padding-top: 6px;
+  background: var(--bg);
 }
 .search-icon {
   color: var(--muted);
@@ -586,6 +599,28 @@ html, body, #root {
   border-bottom: 1px solid var(--border);
 }
 .search-file-header:active { background: var(--bg3); }
+.tree-search-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tree-search-result:active { background: var(--bg3); }
+.tree-search-result.dir .tree-search-path { color: var(--link); }
+.tree-search-path {
+  flex: 1;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .search-file-path {
   flex: 1;
   font-family: 'SF Mono', Menlo, Consolas, monospace;

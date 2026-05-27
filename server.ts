@@ -133,6 +133,17 @@ app.get('/api/repos/:id/tree', async c => {
   }
 });
 
+app.get('/api/repos/:id/tree-search', async c => {
+  try {
+    const repoPath = validateRepoId(c.req.param('id'));
+    const query = c.req.query('q')?.trim() ?? '';
+    const tree = await git.searchFileTree(repoPath, query, config.ignoreDirs ?? []);
+    return c.json(tree);
+  } catch (e) {
+    return errorResponse(c, e);
+  }
+});
+
 app.get('/api/repos/:id/file', async c => {
   try {
     const repoPath = validateRepoId(c.req.param('id'));

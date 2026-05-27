@@ -62,6 +62,11 @@ export interface SearchResult {
   truncated: boolean;
 }
 
+export interface TreeSearchResult {
+  matches: TreeEntry[];
+  truncated: boolean;
+}
+
 export interface CommitDetail {
   fullHash: string;
   shortHash: string;

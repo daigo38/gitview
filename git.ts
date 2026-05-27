@@ -86,6 +86,11 @@ export interface SearchResult {
   truncated: boolean;
 }
 
+export interface TreeSearchResult {
+  matches: TreeEntry[];
+  truncated: boolean;
+}
+
 function execGit(args: readonly string[], cwd: string, timeout = 15000): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -363,6 +368,63 @@ export async function getFileTree(
       if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
+}
+
+export async function searchFileTree(
+  repoPath: string,
+  query: string,
+  ignoreDirs: readonly string[] = [],
+  limit = 500,
+): Promise<TreeSearchResult> {
+  const q = query.trim().toLowerCase();
+  if (!q) return { matches: [], truncated: false };
+
+  const safeIgnore = new Set<string>([...ignoreDirs, '.git']);
+  const max = Math.min(Math.max(limit, 1), 2000);
+  const matches: TreeEntry[] = [];
+  let truncated = false;
+
+  async function walk(subPath: string): Promise<void> {
+    if (truncated) return;
+    const fullPath = validatePath(repoPath, subPath);
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(fullPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    entries.sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const entry of entries) {
+      if (safeIgnore.has(entry.name)) continue;
+      const entryPath = subPath ? `${subPath}/${entry.name}` : entry.name;
+      const treeEntry: TreeEntry = {
+        name: entry.name,
+        type: entry.isDirectory() ? 'dir' : 'file',
+        path: entryPath,
+      };
+
+      if (entry.name.toLowerCase().includes(q) || entryPath.toLowerCase().includes(q)) {
+        if (matches.length >= max) {
+          truncated = true;
+          return;
+        }
+        matches.push(treeEntry);
+      }
+
+      if (entry.isDirectory()) {
+        await walk(entryPath);
+        if (truncated) return;
+      }
+    }
+  }
+
+  await walk('');
+  return { matches, truncated };
 }
 
 export async function getFileContent(repoPath: string, filePath: string): Promise<FileContent> {
