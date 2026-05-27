@@ -86,6 +86,7 @@ export type View =
       type: 'file';
       repoId: string;
       repoName: string;
+      repoPath?: string;
       filePath: string;
       tab?: FileTab;
       fileStatus?: FileStatus;

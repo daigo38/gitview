@@ -57,13 +57,25 @@ interface FileItemProps {
   file: FileStatus;
   repoId: string;
   repoName: string;
+  repoPath?: string;
   navigate: NavigateFn;
   actionLabel: '+' | '−';
   onAction: (filePath: string) => void;
   onDiscard?: (filePath: string) => void;
+  onShowInTree: (filePath: string) => void;
 }
 
-function FileItem({ file, repoId, repoName, navigate, actionLabel, onAction, onDiscard }: FileItemProps) {
+function FileItem({
+  file,
+  repoId,
+  repoName,
+  repoPath,
+  navigate,
+  actionLabel,
+  onAction,
+  onDiscard,
+  onShowInTree,
+}: FileItemProps) {
   const parts = file.path.split('/');
   const name = parts.pop() ?? file.path;
   const dir = parts.join('/');
@@ -77,6 +89,7 @@ function FileItem({ file, repoId, repoName, navigate, actionLabel, onAction, onD
         type: 'file',
         repoId,
         repoName,
+        repoPath,
         filePath: file.path,
         tab: defaultTab,
         fileStatus: file,
@@ -89,6 +102,14 @@ function FileItem({ file, repoId, repoName, navigate, actionLabel, onAction, onD
         {dir && <span className="file-path-dir">{dir}/</span>}
         <span className="file-path-name">{name}</span>
       </span>
+      <button
+        className="action-btn action-btn-tree"
+        onClick={e => { e.stopPropagation(); onShowInTree(file.path); }}
+        title="ファイルツリーで表示"
+        aria-label="ファイルツリーで表示"
+      >
+        ⌖
+      </button>
       {onDiscard && <DiscardButton onDiscard={() => onDiscard(file.path)} filePath={file.path} />}
       <button
         className={`action-btn ${actionLabel === '+' ? 'action-btn-stage' : 'action-btn-unstage'}`}
@@ -167,6 +188,7 @@ function LogTab({ repoId, repoName, navigate, active }: LogTabProps) {
 interface RepoDetailProps {
   repoId: string;
   repoName: string;
+  repoPath?: string;
   navigate: NavigateFn;
   active: boolean;
 }
@@ -182,11 +204,12 @@ interface RemoteResult {
   text: string;
 }
 
-export default function RepoDetail({ repoId, repoName, navigate, active }: RepoDetailProps) {
+export default function RepoDetail({ repoId, repoName, repoPath, navigate, active }: RepoDetailProps) {
   const [detail, setDetail] = useState<RepoDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<RepoTab>('status');
+  const [treeTarget, setTreeTarget] = useState<{ path: string; token: number } | null>(null);
   const [commitMsg, setCommitMsg] = useState('');
   const [committing, setCommitting] = useState(false);
   const [remoteBusy, setRemoteBusy] = useState<RemoteAction | null>(null);
@@ -228,6 +251,14 @@ export default function RepoDetail({ repoId, repoName, navigate, active }: RepoD
   const unstage = useCallback((files: string[] | undefined) => operate('unstage', files), [operate]);
   const discard = useCallback((files: string[] | undefined) => operate('discard', files), [operate]);
   const clean   = useCallback((files: string[] | undefined) => operate('clean',   files), [operate]);
+
+  const showInTree = useCallback((filePath: string) => {
+    setTreeTarget(current => ({
+      path: filePath,
+      token: (current?.token ?? 0) + 1,
+    }));
+    setTab('tree');
+  }, []);
 
   const runRemote = useCallback(async (action: RemoteAction) => {
     if (remoteBusy) return;
@@ -291,6 +322,7 @@ export default function RepoDetail({ repoId, repoName, navigate, active }: RepoD
   );
 
   const files: FileStatus[] = detail?.files ?? [];
+  const currentRepoPath = detail?.path ?? repoPath;
   const branch = detail?.branch ?? 'HEAD';
   const ahead = detail?.ahead ?? 0;
   const behind = detail?.behind ?? 0;
@@ -373,9 +405,11 @@ export default function RepoDetail({ repoId, repoName, navigate, active }: RepoD
                       file={f}
                       repoId={repoId}
                       repoName={repoName}
+                      repoPath={currentRepoPath}
                       navigate={navigate}
                       actionLabel="−"
                       onAction={(p) => { void unstage([p]); }}
+                      onShowInTree={showInTree}
                     />
                   ))}
                 </div>
@@ -413,10 +447,12 @@ export default function RepoDetail({ repoId, repoName, navigate, active }: RepoD
                       file={f}
                       repoId={repoId}
                       repoName={repoName}
+                      repoPath={currentRepoPath}
                       navigate={navigate}
                       actionLabel="+"
                       onAction={(p) => { void stage([p]); }}
                       onDiscard={(p) => { void discard([p]); }}
+                      onShowInTree={showInTree}
                     />
                   ))}
                 </div>
@@ -437,10 +473,12 @@ export default function RepoDetail({ repoId, repoName, navigate, active }: RepoD
                       file={f}
                       repoId={repoId}
                       repoName={repoName}
+                      repoPath={currentRepoPath}
                       navigate={navigate}
                       actionLabel="+"
                       onAction={(p) => { void stage([p]); }}
                       onDiscard={(p) => { void clean([p]); }}
+                      onShowInTree={showInTree}
                     />
                   ))}
                 </div>
@@ -450,7 +488,15 @@ export default function RepoDetail({ repoId, repoName, navigate, active }: RepoD
         )}
 
         {tab === 'tree' && (
-          <FileTree repoId={repoId} repoName={repoName} navigate={navigate} active={active} />
+          <FileTree
+            repoId={repoId}
+            repoName={repoName}
+            repoPath={currentRepoPath}
+            navigate={navigate}
+            active={active}
+            targetPath={treeTarget?.path}
+            targetToken={treeTarget?.token ?? 0}
+          />
         )}
 
         {tab === 'log' && (

@@ -88,6 +88,20 @@ function ScreenContent({ view, navigate, goBack, canGoBack, active }: ScreenCont
     }
   };
 
+  const copyFilePath = async (): Promise<void> => {
+    if (view.type !== 'file') return;
+    const filePath = view.repoPath
+      ? `${view.repoPath.replace(/\/$/, '')}/${view.filePath}`
+      : view.filePath;
+    try {
+      await copyText(filePath);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch (e: unknown) {
+      console.error('Failed to copy file path', e);
+    }
+  };
+
   function getTitle(): { title: string; sub: string | null } {
     switch (view.type) {
       case 'repos':  return { title: 'GitView', sub: null };
@@ -126,9 +140,19 @@ function ScreenContent({ view, navigate, goBack, canGoBack, active }: ScreenCont
             ⧉
           </button>
         )}
+        {view.type === 'file' && (
+          <button
+            className={`header-copy-path ${copied ? 'copied' : ''}`}
+            onClick={() => { void copyFilePath(); }}
+            title={copied ? 'コピー済み' : 'ファイルパスをコピー'}
+            aria-label={copied ? 'ファイルパスをコピーしました' : 'ファイルパスをコピー'}
+          >
+            ⧉
+          </button>
+        )}
       </header>
       {view.type === 'repos'  && <RepoList navigate={navigate} active={active} />}
-      {view.type === 'repo'   && <RepoDetail repoId={view.repoId} repoName={view.repoName} navigate={navigate} active={active} />}
+      {view.type === 'repo'   && <RepoDetail repoId={view.repoId} repoName={view.repoName} repoPath={view.repoPath} navigate={navigate} active={active} />}
       {view.type === 'file'   && <FileView repoId={view.repoId} filePath={view.filePath} initialTab={view.tab ?? 'file'} fileStatus={view.fileStatus} initialLine={view.line} initialQuery={view.query} active={active} />}
       {view.type === 'commit' && <CommitView key={view.hash} repoId={view.repoId} hash={view.hash} active={active} />}
     </>

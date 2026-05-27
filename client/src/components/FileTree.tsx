@@ -6,16 +6,30 @@ interface TreeNodeProps {
   entry: TreeEntry;
   repoId: string;
   repoName: string;
+  repoPath?: string;
   navigate: NavigateFn;
   depth?: number;
   refreshToken: number;
+  targetPath?: string;
+  targetToken: number;
 }
 
-function TreeNode({ entry, repoId, repoName, navigate, depth = 0, refreshToken }: TreeNodeProps) {
+function TreeNode({
+  entry,
+  repoId,
+  repoName,
+  repoPath,
+  navigate,
+  depth = 0,
+  refreshToken,
+  targetPath,
+  targetToken,
+}: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<TreeEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
   const lastRefreshTokenRef = useRef(refreshToken);
+  const itemRef = useRef<HTMLDivElement | null>(null);
 
   const loadChildren = useCallback(async () => {
     setLoading(true);
@@ -32,14 +46,14 @@ function TreeNode({ entry, repoId, repoName, navigate, depth = 0, refreshToken }
 
   const toggle = useCallback(async () => {
     if (entry.type !== 'dir') {
-      navigate({ type: 'file', repoId, repoName, filePath: entry.path, tab: 'file' });
+      navigate({ type: 'file', repoId, repoName, repoPath, filePath: entry.path, tab: 'file' });
       return;
     }
     if (!expanded && children === null) {
       await loadChildren();
     }
     setExpanded(e => !e);
-  }, [expanded, children, entry, repoId, repoName, navigate, loadChildren]);
+  }, [expanded, children, entry, repoId, repoName, repoPath, navigate, loadChildren]);
 
   useEffect(() => {
     if (lastRefreshTokenRef.current === refreshToken) return;
@@ -48,6 +62,25 @@ function TreeNode({ entry, repoId, repoName, navigate, depth = 0, refreshToken }
     void loadChildren();
   }, [entry.type, expanded, loadChildren, refreshToken]);
 
+  const isTarget = targetPath === entry.path;
+  const isTargetAncestor =
+    entry.type === 'dir' &&
+    targetPath !== undefined &&
+    targetPath.startsWith(`${entry.path}/`);
+
+  useEffect(() => {
+    if (!isTargetAncestor) return;
+    setExpanded(true);
+    if (children === null) void loadChildren();
+  }, [children, isTargetAncestor, loadChildren, targetToken]);
+
+  useEffect(() => {
+    if (!isTarget) return;
+    requestAnimationFrame(() => {
+      itemRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  }, [isTarget, targetToken]);
+
   const icon = entry.type === 'dir'
     ? (expanded ? '📂' : '📁')
     : getFileIcon(entry.name);
@@ -55,7 +88,8 @@ function TreeNode({ entry, repoId, repoName, navigate, depth = 0, refreshToken }
   return (
     <>
       <div
-        className={`tree-item ${entry.type}`}
+        ref={itemRef}
+        className={`tree-item ${entry.type} ${isTarget ? 'tree-item-target' : ''}`}
         style={{ paddingLeft: `${16 + depth * 16}px` }}
         onClick={() => { void toggle(); }}
       >
@@ -71,9 +105,12 @@ function TreeNode({ entry, repoId, repoName, navigate, depth = 0, refreshToken }
           entry={child}
           repoId={repoId}
           repoName={repoName}
+          repoPath={repoPath}
           navigate={navigate}
           depth={depth + 1}
           refreshToken={refreshToken}
+          targetPath={targetPath}
+          targetToken={targetToken}
         />
       ))}
     </>
@@ -121,12 +158,13 @@ function highlightMatch(text: string, query: string): React.ReactNode {
 interface SearchResultsProps {
   repoId: string;
   repoName: string;
+  repoPath?: string;
   query: string;
   navigate: NavigateFn;
   refreshToken: number;
 }
 
-function SearchResults({ repoId, repoName, query, navigate, refreshToken }: SearchResultsProps) {
+function SearchResults({ repoId, repoName, repoPath, query, navigate, refreshToken }: SearchResultsProps) {
   const [data, setData] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -181,7 +219,7 @@ function SearchResults({ repoId, repoName, query, navigate, refreshToken }: Sear
         <div key={filePath} className="search-file-group">
           <div
             className="search-file-header"
-            onClick={() => navigate({ type: 'file', repoId, repoName, filePath, tab: 'file', query })}
+            onClick={() => navigate({ type: 'file', repoId, repoName, repoPath, filePath, tab: 'file', query })}
           >
             <span className="tree-icon">{getFileIcon(filePath.split('/').pop() ?? '')}</span>
             <span className="search-file-path">{filePath}</span>
@@ -192,7 +230,7 @@ function SearchResults({ repoId, repoName, query, navigate, refreshToken }: Sear
               key={`${filePath}:${m.line}`}
               className="search-match"
               onClick={() => navigate({
-                type: 'file', repoId, repoName, filePath, tab: 'file',
+                type: 'file', repoId, repoName, repoPath, filePath, tab: 'file',
                 line: m.line, query,
               })}
             >
@@ -209,11 +247,22 @@ function SearchResults({ repoId, repoName, query, navigate, refreshToken }: Sear
 interface TreeViewProps {
   repoId: string;
   repoName: string;
+  repoPath?: string;
   navigate: NavigateFn;
   refreshToken: number;
+  targetPath?: string;
+  targetToken: number;
 }
 
-function TreeView({ repoId, repoName, navigate, refreshToken }: TreeViewProps) {
+function TreeView({
+  repoId,
+  repoName,
+  repoPath,
+  navigate,
+  refreshToken,
+  targetPath,
+  targetToken,
+}: TreeViewProps) {
   const [entries, setEntries] = useState<TreeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -239,9 +288,12 @@ function TreeView({ repoId, repoName, navigate, refreshToken }: TreeViewProps) {
           entry={entry}
           repoId={repoId}
           repoName={repoName}
+          repoPath={repoPath}
           navigate={navigate}
           depth={0}
           refreshToken={refreshToken}
+          targetPath={targetPath}
+          targetToken={targetToken}
         />
       ))}
     </div>
@@ -251,11 +303,22 @@ function TreeView({ repoId, repoName, navigate, refreshToken }: TreeViewProps) {
 interface FileTreeProps {
   repoId: string;
   repoName: string;
+  repoPath?: string;
   navigate: NavigateFn;
   active: boolean;
+  targetPath?: string;
+  targetToken?: number;
 }
 
-export default function FileTree({ repoId, repoName, navigate, active }: FileTreeProps) {
+export default function FileTree({
+  repoId,
+  repoName,
+  repoPath,
+  navigate,
+  active,
+  targetPath,
+  targetToken = 0,
+}: FileTreeProps) {
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
   const [refreshToken, setRefreshToken] = useState(0);
@@ -268,6 +331,12 @@ export default function FileTree({ repoId, repoName, navigate, active }: FileTre
   const showSearch = debounced.length > 0;
 
   useRefreshOnFocus(active, () => setRefreshToken(t => t + 1));
+
+  useEffect(() => {
+    if (!targetPath) return;
+    setQuery('');
+    setDebounced('');
+  }, [targetPath, targetToken]);
 
   return (
     <>
@@ -295,9 +364,24 @@ export default function FileTree({ repoId, repoName, navigate, active }: FileTre
         )}
       </div>
       {showSearch ? (
-        <SearchResults repoId={repoId} repoName={repoName} query={debounced} navigate={navigate} refreshToken={refreshToken} />
+        <SearchResults
+          repoId={repoId}
+          repoName={repoName}
+          repoPath={repoPath}
+          query={debounced}
+          navigate={navigate}
+          refreshToken={refreshToken}
+        />
       ) : (
-        <TreeView repoId={repoId} repoName={repoName} navigate={navigate} refreshToken={refreshToken} />
+        <TreeView
+          repoId={repoId}
+          repoName={repoName}
+          repoPath={repoPath}
+          navigate={navigate}
+          refreshToken={refreshToken}
+          targetPath={targetPath}
+          targetToken={targetToken}
+        />
       )}
     </>
   );

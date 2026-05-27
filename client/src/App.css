@@ -492,6 +492,10 @@ html, body, #root {
 }
 .tree-item:active { background: var(--bg3); }
 .tree-item:last-child { border-bottom: none; }
+.tree-item-target {
+  background: rgba(88, 166, 255, 0.14);
+  box-shadow: inset 3px 0 0 var(--blue);
+}
 
 .tree-icon {
   font-size: 15px;
@@ -746,6 +750,7 @@ html, body, #root {
 .action-btn-stage   { background: rgba(63, 185, 80, 0.15); color: var(--green); }
 .action-btn-unstage { background: rgba(248, 81, 73, 0.15); color: var(--red); }
 .action-btn-discard { background: rgba(210, 153, 34, 0.15); color: var(--yellow); font-size: 16px; }
+.action-btn-tree    { background: rgba(88, 166, 255, 0.15); color: var(--blue); font-size: 15px; }
 
 /* Section header with bulk action */
 .section-header-row {
