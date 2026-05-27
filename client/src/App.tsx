@@ -8,6 +8,19 @@ import type { NavigateFn, View } from './types.ts';
 type Phase = 'idle' | 'entering' | 'exiting' | 'swiping';
 
 const DESKTOP_QUERY = '(min-width: 960px)';
+const NAV_STATE_KEY = 'gitview:navigation';
+
+interface NavigationState {
+  key: typeof NAV_STATE_KEY;
+  stack: View[];
+  index: number;
+}
+
+function isNavigationState(value: unknown): value is NavigationState {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<NavigationState>;
+  return candidate.key === NAV_STATE_KEY && Array.isArray(candidate.stack) && typeof candidate.index === 'number';
+}
 
 function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => (
@@ -53,12 +66,10 @@ function getViewKey(view: View): string {
 interface ScreenContentProps {
   view: View;
   navigate: NavigateFn;
-  goBack: () => void;
-  canGoBack: boolean;
   active: boolean;
 }
 
-function ScreenContent({ view, navigate, goBack, canGoBack, active }: ScreenContentProps) {
+function ScreenContent({ view, navigate, active }: ScreenContentProps) {
   const [copied, setCopied] = useState(false);
 
   const copyText = async (text: string): Promise<void> => {
@@ -123,9 +134,6 @@ function ScreenContent({ view, navigate, goBack, canGoBack, active }: ScreenCont
   return (
     <>
       <header className="header">
-        {canGoBack && (
-          <button className="header-back" onClick={goBack}>‹ 戻る</button>
-        )}
         <div className="header-title">
           {title}
           {sub && <span className="header-subtitle"> — {sub}</span>}
@@ -165,6 +173,12 @@ interface TouchOrigin {
   ts: number;
 }
 
+interface WheelGesture {
+  x: number;
+  y: number;
+  lastAt: number;
+}
+
 export default function App() {
   const [history, setHistory] = useState<View[]>([{ type: 'repos' }]);
   const [phase, setPhase] = useState<Phase>('idle');
@@ -177,53 +191,166 @@ export default function App() {
   const phaseRef = useRef<Phase>('idle');
   const historyLenRef = useRef<number>(1);
   const desktopLayoutRef = useRef<boolean>(false);
+  const navIndexRef = useRef<number>(0);
+  const maxNavIndexRef = useRef<number>(0);
   const swipeActiveRef = useRef<boolean>(false);
   const touchOriginRef = useRef<TouchOrigin | null>(null);
+  const wheelGestureRef = useRef<WheelGesture>({ x: 0, y: 0, lastAt: 0 });
+  const lastWheelNavigationAtRef = useRef(0);
 
   phaseRef.current = phase;
   historyLenRef.current = history.length;
   desktopLayoutRef.current = isDesktopLayout;
 
+  useEffect(() => {
+    const state = window.history.state;
+    if (isNavigationState(state)) {
+      navIndexRef.current = state.index;
+      maxNavIndexRef.current = Math.max(maxNavIndexRef.current, state.index);
+      setHistory(state.stack);
+      return;
+    }
+    const initialState: NavigationState = {
+      key: NAV_STATE_KEY,
+      stack: [{ type: 'repos' }],
+      index: 0,
+    };
+    window.history.replaceState(initialState, '');
+  }, []);
+
+  const pushNavigationState = useCallback((stack: View[]) => {
+    const index = navIndexRef.current + 1;
+    navIndexRef.current = index;
+    maxNavIndexRef.current = index;
+    window.history.pushState({ key: NAV_STATE_KEY, stack, index } satisfies NavigationState, '');
+  }, []);
+
   const navigate = useCallback<NavigateFn>((v) => {
     if (!desktopLayoutRef.current && phaseRef.current !== 'idle') return;
-    setHistory(h => [...h, v]);
+    setHistory(h => {
+      const next = [...h, v];
+      pushNavigationState(next);
+      return next;
+    });
     if (desktopLayoutRef.current) return;
     setPhase('entering');
     window.setTimeout(() => setPhase('idle'), 340);
-  }, []);
+  }, [pushNavigationState]);
 
   const navigateFromSidebar = useCallback<NavigateFn>((v) => {
     setHistory(h => {
-      if (h.length <= 1) return [...h, v];
-      return [...h.slice(0, -1), v];
+      const next = h.length <= 1 ? [...h, v] : [...h.slice(0, -1), v];
+      pushNavigationState(next);
+      return next;
     });
+  }, [pushNavigationState]);
+
+  useEffect(() => {
+    const onPopState = (e: PopStateEvent): void => {
+      if (!isNavigationState(e.state)) return;
+      const nextIndex = e.state.index;
+      const currentIndex = navIndexRef.current;
+      navIndexRef.current = nextIndex;
+      maxNavIndexRef.current = Math.max(maxNavIndexRef.current, nextIndex);
+
+      if (desktopLayoutRef.current) {
+        setHistory(e.state.stack);
+        setPhase('idle');
+        return;
+      }
+
+      if (phaseRef.current === 'swiping') {
+        setHistory(e.state.stack);
+        setSwipeX(0);
+        setSwipeSettle(false);
+        setPhase('idle');
+        return;
+      }
+
+      if (nextIndex < currentIndex) {
+        setPhase('exiting');
+        window.setTimeout(() => {
+          setHistory(e.state.stack);
+          setSwipeX(0);
+          setSwipeSettle(false);
+          setPhase('idle');
+        }, 280);
+        return;
+      }
+
+      setHistory(e.state.stack);
+      setPhase('entering');
+      window.setTimeout(() => setPhase('idle'), 340);
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const goBack = useCallback(() => {
-    if (historyLenRef.current <= 1) return;
-    if (desktopLayoutRef.current) {
-      setHistory(h => h.slice(0, -1));
-      setPhase('idle');
-      return;
-    }
-    if (phaseRef.current !== 'idle') return;
-    setPhase('exiting');
-    window.setTimeout(() => {
-      setHistory(h => h.slice(0, -1));
-      setPhase('idle');
-    }, 300);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent): void => {
+      if (!desktopLayoutRef.current || phaseRef.current !== 'idle') return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const absX = Math.abs(e.deltaX);
+      const absY = Math.abs(e.deltaY);
+      if (absX < 8 || absX < absY * 1.25) return;
+
+      const now = Date.now();
+      if (now - lastWheelNavigationAtRef.current < 650) {
+        e.preventDefault();
+        return;
+      }
+
+      const gesture = wheelGestureRef.current;
+      if (now - gesture.lastAt > 220) {
+        gesture.x = 0;
+        gesture.y = 0;
+      }
+      gesture.x += e.deltaX;
+      gesture.y += e.deltaY;
+      gesture.lastAt = now;
+
+      const canGoBack = navIndexRef.current > 0 && historyLenRef.current > 1;
+      const canGoForward = navIndexRef.current < maxNavIndexRef.current;
+      const threshold = 140;
+      const absGestureX = Math.abs(gesture.x);
+
+      if (absGestureX > threshold && canGoBack && (!canGoForward || gesture.x < 0)) {
+        e.preventDefault();
+        lastWheelNavigationAtRef.current = now;
+        gesture.x = 0;
+        gesture.y = 0;
+        window.history.back();
+      } else if (absGestureX > threshold && canGoForward && (!canGoBack || gesture.x > 0)) {
+        e.preventDefault();
+        lastWheelNavigationAtRef.current = now;
+        gesture.x = 0;
+        gesture.y = 0;
+        window.history.forward();
+      } else if (canGoBack || canGoForward) {
+        e.preventDefault();
+      }
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
-  // Add non-passive touchmove so we can preventDefault during horizontal swipe
+  // Mobile keeps the original left-edge back swipe. Desktop trackpads use wheel above.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
     const onStart = (e: TouchEvent): void => {
-      if (phaseRef.current !== 'idle' || historyLenRef.current <= 1) return;
+      if (desktopLayoutRef.current || phaseRef.current !== 'idle') return;
       const t = e.touches[0];
       if (!t) return;
-      if (t.clientX < 32) {
+      const canGoBack = navIndexRef.current > 0 && historyLenRef.current > 1;
+      if (t.clientX < 32 && canGoBack) {
         touchOriginRef.current = { x: t.clientX, y: t.clientY, ts: Date.now() };
         swipeActiveRef.current = false;
       }
@@ -239,7 +366,10 @@ export default function App() {
 
       if (!swipeActiveRef.current) {
         if (dy > Math.abs(dx)) { touchOriginRef.current = null; return; } // vertical scroll wins
-        if (dx > 6) { swipeActiveRef.current = true; setPhase('swiping'); }
+        if (dx > 6) {
+          swipeActiveRef.current = true;
+          setPhase('swiping');
+        }
       }
 
       if (swipeActiveRef.current && dx >= 0) {
@@ -270,10 +400,7 @@ export default function App() {
       if (dx > threshold) {
         setSwipeX(window.innerWidth);
         window.setTimeout(() => {
-          setHistory(h => h.slice(0, -1));
-          setSwipeX(0);
-          setSwipeSettle(false);
-          setPhase('idle');
+          window.history.back();
         }, 260);
       } else {
         setSwipeX(0);
@@ -323,8 +450,6 @@ export default function App() {
           <ScreenContent
             view={sidebarView}
             navigate={navigateFromSidebar}
-            goBack={goBack}
-            canGoBack={false}
             active={true}
           />
         </section>
@@ -334,8 +459,6 @@ export default function App() {
               key={`detail-${getViewKey(detailView)}`}
               view={detailView}
               navigate={navigate}
-              goBack={goBack}
-              canGoBack={history.length > 1}
               active={true}
             />
           ) : (
@@ -383,7 +506,7 @@ export default function App() {
         return (
           <div key={i} className={className} style={style}>
             {(isCurrent || isPrev) && (
-              <ScreenContent view={view} navigate={navigate} goBack={goBack} canGoBack={i > 0} active={isCurrent && phase === 'idle'} />
+              <ScreenContent view={view} navigate={navigate} active={isCurrent && phase === 'idle'} />
             )}
           </div>
         );
