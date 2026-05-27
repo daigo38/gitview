@@ -79,6 +79,8 @@ export interface SearchMatch {
   text: string;
 }
 
+const STATUS_ARGS = ['status', '--porcelain', '-z', '--untracked-files=all'];
+
 export interface SearchResult {
   matches: SearchMatch[];
   truncated: boolean;
@@ -199,7 +201,7 @@ export async function scanRepos(config: ScanConfig): Promise<string[]> {
   return [...found].sort();
 }
 
-// `git status --porcelain -z` の出力をパースする。
+// `git status --porcelain -z --untracked-files=all` の出力をパースする。
 // `-z` を使うのは、特殊文字（"、\、制御文字、非ASCII 等）を含むパスが
 // クォート＆エスケープされてしまうのを避けるため。NUL 終端なら生パスのまま得られる。
 function parseStatus(output: string): FileStatus[] {
@@ -248,7 +250,7 @@ async function getWorktreeParent(repoPath: string): Promise<string | null> {
 
 export async function getRepoSummary(repoPath: string): Promise<RepoSummary> {
   const [statusOut, branchOut, lastCommitOut, parentName] = await Promise.all([
-    execGit(['status', '--porcelain', '-z'], repoPath).catch(() => ''),
+    execGit(STATUS_ARGS, repoPath).catch(() => ''),
     execGit(['branch', '--show-current'], repoPath).catch(() => ''),
     execGit(['log', '-1', '--format=%ct'], repoPath).catch(() => '0'),
     getWorktreeParent(repoPath),
@@ -288,7 +290,7 @@ export async function getRepoSummary(repoPath: string): Promise<RepoSummary> {
 
 export async function getRepoDetail(repoPath: string): Promise<RepoDetail> {
   const [statusOut, branchOut] = await Promise.all([
-    execGit(['status', '--porcelain', '-z'], repoPath).catch(() => ''),
+    execGit(STATUS_ARGS, repoPath).catch(() => ''),
     execGit(['branch', '--show-current'], repoPath).catch(() => ''),
   ]);
 
