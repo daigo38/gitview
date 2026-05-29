@@ -97,9 +97,10 @@ interface ScreenContentProps {
   view: View;
   navigate: NavigateFn;
   active: boolean;
+  onBackToRepoList: () => void;
 }
 
-function ScreenContent({ view, navigate, active }: ScreenContentProps) {
+function ScreenContent({ view, navigate, active, onBackToRepoList }: ScreenContentProps) {
   const [copied, setCopied] = useState(false);
 
   const copyText = async (text: string): Promise<void> => {
@@ -164,6 +165,16 @@ function ScreenContent({ view, navigate, active }: ScreenContentProps) {
   return (
     <>
       <header className="header">
+        {view.type === 'repo' && (
+          <button
+            className="header-back"
+            onClick={onBackToRepoList}
+            title="リポジトリ一覧に戻る"
+            aria-label="リポジトリ一覧に戻る"
+          >
+            ‹
+          </button>
+        )}
         <div className="header-title">
           {title}
           {sub && <span className="header-subtitle"> — {sub}</span>}
@@ -274,6 +285,33 @@ export default function App() {
       return next;
     });
   }, [pushNavigationState]);
+
+  const backToRepoList = useCallback(() => {
+    if (!desktopLayoutRef.current && phaseRef.current !== 'idle') return;
+
+    const stack: View[] = [{ type: 'repos' }];
+    window.history.replaceState({
+      key: NAV_STATE_KEY,
+      stack,
+      index: navIndexRef.current,
+    } satisfies NavigationState, '');
+
+    if (!desktopLayoutRef.current && historyLenRef.current > 1) {
+      setPhase('exiting');
+      window.setTimeout(() => {
+        setHistory(stack);
+        setSwipeX(0);
+        setSwipeSettle(false);
+        setPhase('idle');
+      }, 280);
+      return;
+    }
+
+    setHistory(stack);
+    setSwipeX(0);
+    setSwipeSettle(false);
+    setPhase('idle');
+  }, []);
 
   useEffect(() => {
     const onPopState = (e: PopStateEvent): void => {
@@ -486,6 +524,7 @@ export default function App() {
             view={sidebarView}
             navigate={navigateFromSidebar}
             active={true}
+            onBackToRepoList={backToRepoList}
           />
         </section>
         <section className="desktop-pane desktop-pane-detail">
@@ -495,6 +534,7 @@ export default function App() {
               view={detailView}
               navigate={navigate}
               active={true}
+              onBackToRepoList={backToRepoList}
             />
           ) : (
             <div className="desktop-empty-pane">
@@ -541,7 +581,12 @@ export default function App() {
         return (
           <div key={i} className={className} style={style}>
             {(isCurrent || isPrev) && (
-              <ScreenContent view={view} navigate={navigate} active={isCurrent && phase === 'idle'} />
+              <ScreenContent
+                view={view}
+                navigate={navigate}
+                active={isCurrent && phase === 'idle'}
+                onBackToRepoList={backToRepoList}
+              />
             )}
           </div>
         );

@@ -137,6 +137,7 @@ html, body, #root {
   font-size: 17px;
   font-weight: 600;
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -159,6 +160,29 @@ html, body, #root {
   border-radius: 8px;
 }
 .header-refresh:active { background: var(--bg3); }
+
+.header-back {
+  width: 34px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--link);
+  font-size: 30px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.header-back:hover {
+  background: var(--bg3);
+}
+.header-back:active {
+  background: var(--border);
+}
 
 .header-copy-path {
   width: 34px;
