@@ -89,9 +89,10 @@ interface FileContentProps {
   initialLine?: number;
   initialQuery?: string;
   active: boolean;
+  searchFocusToken?: number;
 }
 
-function FileContent({ repoId, filePath, initialLine, initialQuery, active }: FileContentProps) {
+function FileContent({ repoId, filePath, initialLine, initialQuery, active, searchFocusToken = 0 }: FileContentProps) {
   const ext = getExt(filePath);
   const isVideo = VIDEO_EXTS.has(ext);
   const isImage = IMAGE_EXTS.has(ext);
@@ -104,6 +105,7 @@ function FileContent({ repoId, filePath, initialLine, initialQuery, active }: Fi
   const [refreshToken, setRefreshToken] = useState(0);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback((showLoading = true) => {
     if (isVideo || isImage) return;
@@ -128,6 +130,14 @@ function FileContent({ repoId, filePath, initialLine, initialQuery, active }: Fi
     }
     return load(false);
   });
+
+  useEffect(() => {
+    if (!active || searchFocusToken === 0 || loading) return;
+    requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+  }, [active, searchFocusToken, loading]);
 
   const lines = useMemo(
     () => (data?.content ?? '').split('\n'),
@@ -204,6 +214,25 @@ function FileContent({ repoId, filePath, initialLine, initialQuery, active }: Fi
     setCurrentMatchIdx(i => (i + 1) % allMatches.length);
   }, [allMatches.length]);
 
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) gotoPrev();
+      else gotoNext();
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      gotoNext();
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      gotoPrev();
+    }
+  }, [gotoNext, gotoPrev]);
+
   if (isVideo) return <VideoPlayer repoId={repoId} filePath={filePath} refreshToken={refreshToken} />;
   if (isImage) return <ImageViewer repoId={repoId} filePath={filePath} refreshToken={refreshToken} />;
   if (loading) return <div className="loading"><div className="spinner" /></div>;
@@ -222,12 +251,14 @@ function FileContent({ repoId, filePath, initialLine, initialQuery, active }: Fi
       <div className="file-search-bar">
         <span className="search-icon">🔎</span>
         <input
+          ref={searchInputRef}
           type="search"
           inputMode="search"
           className="search-input"
           placeholder="ファイル内を検索…"
           value={query}
           onChange={e => setQuery(e.target.value)}
+          onKeyDown={handleSearchKeyDown}
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
@@ -329,6 +360,30 @@ export default function FileView({
     if (availableTabs.find(t => t.key === initialTab)) return initialTab;
     return availableTabs[0]?.key ?? 'file';
   });
+  const [searchFocusToken, setSearchFocusToken] = useState(0);
+
+  const focusFileSearch = useCallback(() => {
+    setTab('file');
+    setSearchFocusToken(t => t + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!active) return;
+
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented || e.isComposing) return;
+      const modifier = e.metaKey || e.ctrlKey;
+      if (!modifier || e.altKey || e.shiftKey) return;
+
+      if (e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        focusFileSearch();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [active, focusFileSearch]);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
@@ -354,6 +409,7 @@ export default function FileView({
             initialLine={initialLine}
             initialQuery={initialQuery}
             active={active && tab === 'file'}
+            searchFocusToken={searchFocusToken}
           />
         )}
         {tab === 'diff' && (
