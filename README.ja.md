@@ -56,8 +56,8 @@ bun start
   <dict><key>PATH</key><string>/Users/YOU/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/Users/YOU/Dev/gitview/logs/server.log</string>
-  <key>StandardErrorPath</key><string>/Users/YOU/Dev/gitview/logs/server.err</string>
+  <key>StandardOutPath</key><string>/Users/YOU/Dev/gitview/logs/stdout.log</string>
+  <key>StandardErrorPath</key><string>/Users/YOU/Dev/gitview/logs/stderr.log</string>
 </dict></plist>
 ```
 

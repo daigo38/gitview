@@ -11,6 +11,8 @@ const logDir = path.join(process.cwd(), 'logs');
 const appRetentionMs = 2 * 24 * 60 * 60 * 1000;
 const appIdleRetentionMs = 24 * 60 * 60 * 1000;
 const errorRetentionMs = 7 * 24 * 60 * 60 * 1000;
+const auxiliaryLogRetentionMs = 7 * 24 * 60 * 60 * 1000;
+const auxiliaryLogMaxBytes = 10 * 1024 * 1024;
 
 function dayKey(date = new Date()): string {
   return date.toISOString().slice(0, 10);
@@ -26,15 +28,23 @@ function shouldDelete(name: string, stat: fs.Stats, now: number): boolean {
   return false;
 }
 
+function shouldTruncateAuxiliary(name: string, stat: fs.Stats, now: number): boolean {
+  if (name !== 'stdout.log' && name !== 'stderr.log') return false;
+  return stat.size > auxiliaryLogMaxBytes || now - stat.mtimeMs > auxiliaryLogRetentionMs;
+}
+
 function cleanupLogs(): void {
   try {
     fs.mkdirSync(logDir, { recursive: true });
     const now = Date.now();
     for (const name of fs.readdirSync(logDir)) {
-      if (!/^(app|error)-\d{4}-\d{2}-\d{2}\.jsonl$/.test(name)) continue;
       const filePath = path.join(logDir, name);
       const stat = fs.statSync(filePath);
-      if (shouldDelete(name, stat, now)) fs.rmSync(filePath, { force: true });
+      if (/^(app|error)-\d{4}-\d{2}-\d{2}\.jsonl$/.test(name) && shouldDelete(name, stat, now)) {
+        fs.rmSync(filePath, { force: true });
+      } else if (shouldTruncateAuxiliary(name, stat, now)) {
+        fs.truncateSync(filePath, 0);
+      }
     }
   } catch {
     // Logging must never block app startup.
