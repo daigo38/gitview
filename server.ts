@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import mime from 'mime';
 import * as git from './git.ts';
 import type { ScanConfig, RepoSummary } from './git.ts';
+import { logger, requestLogger } from './logger.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,6 +30,7 @@ try {
   const raw = fs.readFileSync(configPath, 'utf-8');
   config = JSON.parse(raw) as ServerConfig;
 } catch {
+  logger.warn('config.json not found', { configPath });
   console.warn(
     `[GitView] config.json not found at ${configPath}.\n` +
       `         Copy config.example.json to config.json and edit it.\n` +
@@ -37,7 +39,8 @@ try {
   config = { scanDirs: [], repos: [], port: 10001, ignoreDirs: [] };
 }
 
-const PORT = config.port ?? 10001;
+const envPort = Number(process.env.PORT);
+const PORT = Number.isFinite(envPort) && envPort > 0 ? envPort : config.port ?? 10001;
 const CLIENT_DIST = path.join(__dirname, 'client', 'dist');
 
 // キャッシュ: 起動時に構築し、/api/repos/refresh で更新
@@ -56,6 +59,9 @@ async function buildCache(): Promise<void> {
     summaryCache = summaries
       .filter((s): s is RepoSummary => s !== null)
       .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  } catch (error) {
+    logger.error('Failed to build repository cache', error);
+    throw error;
   } finally {
     isRefreshing = false;
   }
@@ -77,6 +83,11 @@ function errorMessage(e: unknown): string {
 function errorResponse(c: Context, e: unknown, fallback: ContentfulStatusCode = 500) {
   const msg = errorMessage(e);
   const status: ContentfulStatusCode = msg === 'Unknown repository' ? 403 : fallback;
+  logger.error('API error', e, {
+    method: c.req.method,
+    path: c.req.path,
+    status,
+  });
   return c.json({ error: msg }, status);
 }
 
@@ -89,6 +100,7 @@ async function readJsonBody<T>(c: Context, fallback: T): Promise<T> {
 }
 
 const app = new Hono();
+app.use('*', requestLogger);
 
 // 常にキャッシュから即返す
 app.get('/api/repos', c => c.json(summaryCache ?? []));
@@ -352,5 +364,6 @@ Bun.serve({
   idleTimeout: 180,
   fetch: app.fetch,
 });
+logger.info('GitView started', { port: PORT, host: '127.0.0.1' });
 console.log(`\nGitView started on http://localhost:${PORT}`);
 console.log('Use `tailscale serve` for tailnet HTTPS access.\n');
