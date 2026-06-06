@@ -6,6 +6,38 @@ import type { FileContentResponse, FileStatus, FileTab } from '../types.ts';
 const VIDEO_EXTS = new Set<string>(['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v', '.ogv']);
 const IMAGE_EXTS = new Set<string>(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.avif']);
 
+type SyntaxTokenKind = 'comment' | 'function' | 'keyword' | 'literal' | 'number' | 'property' | 'string' | 'type';
+
+const CODE_EXTS = new Set<string>([
+  '.c', '.cc', '.cpp', '.cs', '.css', '.go', '.h', '.hpp', '.html', '.java', '.js', '.jsx',
+  '.json', '.kt', '.m', '.mm', '.php', '.py', '.rb', '.rs', '.scss', '.sh', '.swift', '.toml',
+  '.ts', '.tsx', '.vue', '.xml', '.yaml', '.yml', '.zsh',
+]);
+
+const HASH_COMMENT_EXTS = new Set<string>(['.py', '.rb', '.sh', '.toml', '.yaml', '.yml', '.zsh']);
+const HTML_EXTS = new Set<string>(['.html', '.vue', '.xml']);
+
+const KEYWORDS = new Set<string>([
+  'abstract', 'alias', 'and', 'as', 'async', 'await', 'break', 'case', 'catch', 'class', 'const',
+  'continue', 'def', 'defer', 'delete', 'do', 'else', 'elseif', 'enum', 'export', 'extends',
+  'extension', 'false', 'fileprivate', 'final', 'finally', 'for', 'from', 'func', 'function',
+  'guard', 'if', 'implements', 'import', 'in', 'init', 'instanceof', 'interface', 'internal',
+  'is', 'lambda', 'let', 'match', 'module', 'mut', 'namespace', 'new', 'not', 'operator', 'or',
+  'package', 'private', 'protected', 'protocol', 'public', 'readonly', 'return', 'self', 'static',
+  'struct', 'super', 'switch', 'then', 'this', 'throw', 'throws', 'trait', 'try', 'type', 'typeof',
+  'using', 'var', 'when', 'where', 'while', 'yield',
+]);
+
+const LITERALS = new Set<string>([
+  'False', 'None', 'True', 'false', 'nil', 'null', 'nullptr', 'true', 'undefined',
+]);
+
+const TYPES = new Set<string>([
+  'Array', 'Bool', 'Boolean', 'CGFloat', 'Double', 'Float', 'Int', 'Map', 'Number', 'Object',
+  'Promise', 'Record', 'Set', 'String', 'Void', 'any', 'bool', 'boolean', 'char', 'double',
+  'float', 'int', 'long', 'never', 'number', 'object', 'short', 'string', 'unknown', 'void',
+]);
+
 function getExt(filePath: string): string {
   const i = filePath.lastIndexOf('.');
   return i >= 0 ? filePath.slice(i).toLowerCase() : '';
@@ -56,17 +88,181 @@ interface Match {
   matchIdx: number;    // 全マッチ中の通し番号
 }
 
+function isWordStart(ch: string): boolean {
+  return /[A-Za-z_$]/.test(ch);
+}
+
+function isWordPart(ch: string): boolean {
+  return /[A-Za-z0-9_$]/.test(ch);
+}
+
+function syntaxSpan(kind: SyntaxTokenKind, text: string, key: string): React.ReactNode {
+  return <span key={key} className={`syn syn-${kind}`}>{text}</span>;
+}
+
+function getWordKind(word: string, nextChar: string, prevChar: string): SyntaxTokenKind | null {
+  if (LITERALS.has(word)) return 'literal';
+  if (KEYWORDS.has(word)) return 'keyword';
+  if (TYPES.has(word)) return 'type';
+  if (nextChar === ':' || prevChar === '.') return 'property';
+  if (nextChar === '(' && prevChar !== '.') return 'function';
+  if (/^[A-Z][A-Za-z0-9_$]*$/.test(word)) return 'type';
+  return null;
+}
+
+function renderHtmlSyntax(text: string, keyPrefix: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+
+  const pushPlain = (value: string): void => {
+    if (value) parts.push(value);
+  };
+
+  while (i < text.length) {
+    if (text.startsWith('<!--', i)) {
+      const end = text.indexOf('-->', i + 4);
+      const next = end === -1 ? text.length : end + 3;
+      parts.push(syntaxSpan('comment', text.slice(i, next), `${keyPrefix}-h-${key++}`));
+      i = next;
+      continue;
+    }
+
+    if (text[i] !== '<') {
+      const next = text.indexOf('<', i);
+      const end = next === -1 ? text.length : next;
+      pushPlain(text.slice(i, end));
+      i = end;
+      continue;
+    }
+
+    const tagEnd = text.indexOf('>', i + 1);
+    const end = tagEnd === -1 ? text.length : tagEnd + 1;
+    const tagText = text.slice(i, end);
+    const tagParts = tagText.match(/(\/?[A-Za-z][\w:-]*|[A-Za-z_:][\w:.-]*(?=\=)|"[^"]*"|'[^']*')/g);
+    if (!tagParts) {
+      pushPlain(tagText);
+      i = end;
+      continue;
+    }
+
+    let cursor = 0;
+    for (const token of tagParts) {
+      const start = tagText.indexOf(token, cursor);
+      if (start > cursor) pushPlain(tagText.slice(cursor, start));
+      const kind: SyntaxTokenKind =
+        token[0] === '"' || token[0] === "'"
+          ? 'string'
+          : token.includes('/') || cursor === 0
+            ? 'type'
+            : 'property';
+      parts.push(syntaxSpan(kind, token, `${keyPrefix}-h-${key++}`));
+      cursor = start + token.length;
+    }
+    if (cursor < tagText.length) pushPlain(tagText.slice(cursor));
+    i = end;
+  }
+
+  return parts;
+}
+
+function renderSyntax(text: string, filePath: string, keyPrefix: string): React.ReactNode {
+  const ext = getExt(filePath);
+  if (!CODE_EXTS.has(ext) || !text) return text || ' ';
+  if (HTML_EXTS.has(ext)) return renderHtmlSyntax(text, keyPrefix);
+
+  const parts: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+
+  const pushPlain = (value: string): void => {
+    if (value) parts.push(value);
+  };
+
+  while (i < text.length) {
+    const ch = text[i] ?? '';
+
+    if (text.startsWith('//', i) || (HASH_COMMENT_EXTS.has(ext) && ch === '#')) {
+      parts.push(syntaxSpan('comment', text.slice(i), `${keyPrefix}-c-${key++}`));
+      break;
+    }
+
+    if (text.startsWith('/*', i)) {
+      const end = text.indexOf('*/', i + 2);
+      const next = end === -1 ? text.length : end + 2;
+      parts.push(syntaxSpan('comment', text.slice(i, next), `${keyPrefix}-b-${key++}`));
+      i = next;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      let next = i + 1;
+      while (next < text.length) {
+        const current = text[next];
+        if (current === '\\') {
+          next += 2;
+          continue;
+        }
+        next++;
+        if (current === ch) break;
+      }
+      const token = text.slice(i, next);
+      const after = text.slice(next).trimStart();
+      const kind = (ext === '.json' || ext === '.yaml' || ext === '.yml') && after.startsWith(':')
+        ? 'property'
+        : 'string';
+      parts.push(syntaxSpan(kind, token, `${keyPrefix}-s-${key++}`));
+      i = next;
+      continue;
+    }
+
+    if (/\d/.test(ch) && (i === 0 || !isWordPart(text[i - 1] ?? ''))) {
+      const match = text.slice(i).match(/^(?:0x[\da-fA-F]+|\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?/);
+      if (match) {
+        parts.push(syntaxSpan('number', match[0], `${keyPrefix}-n-${key++}`));
+        i += match[0].length;
+        continue;
+      }
+    }
+
+    if (isWordStart(ch)) {
+      let next = i + 1;
+      while (next < text.length && isWordPart(text[next] ?? '')) next++;
+      const word = text.slice(i, next);
+      let lookahead = next;
+      while (/\s/.test(text[lookahead] ?? '')) lookahead++;
+      let lookbehind = i - 1;
+      while (/\s/.test(text[lookbehind] ?? '')) lookbehind--;
+      const kind = getWordKind(word, text[lookahead] ?? '', text[lookbehind] ?? '');
+      if (kind) parts.push(syntaxSpan(kind, word, `${keyPrefix}-w-${key++}`));
+      else pushPlain(word);
+      i = next;
+      continue;
+    }
+
+    const nextSpecial = text.slice(i + 1).search(/\/\/|\/\*|["'`#\dA-Za-z_$]/);
+    const end = nextSpecial === -1 ? text.length : i + 1 + nextSpecial;
+    pushPlain(text.slice(i, end));
+    i = end;
+  }
+
+  return parts.length > 0 ? <>{parts}</> : (text || ' ');
+}
+
 // 1 行を { query にマッチした箇所 } 付きで描画する
 function renderLine(
   line: string,
   lineMatches: Match[],
   currentMatchIdx: number,
+  filePath: string,
 ): React.ReactNode {
-  if (lineMatches.length === 0) return line || ' ';
+  if (lineMatches.length === 0) return renderSyntax(line, filePath, 'line');
   const parts: React.ReactNode[] = [];
   let cursor = 0;
   for (const m of lineMatches) {
-    if (m.start > cursor) parts.push(line.slice(cursor, m.start));
+    if (m.start > cursor) {
+      parts.push(renderSyntax(line.slice(cursor, m.start), filePath, `p-${m.matchIdx}-${cursor}`));
+    }
     const isCurrent = m.matchIdx === currentMatchIdx;
     parts.push(
       <mark
@@ -79,7 +275,9 @@ function renderLine(
     );
     cursor = m.end;
   }
-  if (cursor < line.length) parts.push(line.slice(cursor));
+  if (cursor < line.length) {
+    parts.push(renderSyntax(line.slice(cursor), filePath, `p-tail-${cursor}`));
+  }
   return <>{parts}</>;
 }
 
@@ -324,7 +522,7 @@ function FileContent({ repoId, filePath, initialLine, initialQuery, active, sear
               <div className={cls} key={i} id={`fline-${lineNum}`}>
                 <span className="diff-line-num">{lineNum}</span>
                 <span className="diff-line-content">
-                  {renderLine(line, lineMatches, allMatches[currentMatchIdx]?.matchIdx ?? -1)}
+                  {renderLine(line, lineMatches, allMatches[currentMatchIdx]?.matchIdx ?? -1, filePath)}
                 </span>
               </div>
             );

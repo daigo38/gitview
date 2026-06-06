@@ -511,6 +511,18 @@ html, body, #root {
   flex: 1;
 }
 
+.syn-keyword { color: #569cd6; }
+.syn-string { color: #ce9178; }
+.syn-comment {
+  color: #6a9955;
+  font-style: italic;
+}
+.syn-number { color: #b5cea8; }
+.syn-literal { color: #569cd6; }
+.syn-function { color: #dcdcaa; }
+.syn-type { color: #4ec9b0; }
+.syn-property { color: #9cdcfe; }
+
 /* File tree */
 .tree-item {
   display: flex;
