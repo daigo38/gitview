@@ -424,6 +424,7 @@ export default function App() {
       if (!t) return;
       const canGoBack = navIndexRef.current > 0 && historyLenRef.current > 1;
       if (t.clientX < 32 && canGoBack) {
+        if (e.cancelable) e.preventDefault();
         touchOriginRef.current = { x: t.clientX, y: t.clientY, ts: Date.now() };
         swipeActiveRef.current = false;
       }
@@ -487,7 +488,7 @@ export default function App() {
       swipeActiveRef.current = false;
     };
 
-    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchstart', onStart, { passive: false });
     el.addEventListener('touchmove',  onMove,  { passive: false });
     el.addEventListener('touchend',   onEnd,   { passive: true });
     return () => {
