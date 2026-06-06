@@ -224,11 +224,14 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
   const [remoteBusy, setRemoteBusy] = useState<RemoteAction | null>(null);
   const [remoteResult, setRemoteResult] = useState<RemoteResult | null>(null);
 
-  const load = useCallback(async (showLoading = true) => {
+  const load = useCallback(async (showLoading = true, fetchRemote = false) => {
     if (showLoading) setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/repos/${repoId}`);
+      const url = fetchRemote
+        ? `/api/repos/${repoId}?fetch=true`
+        : `/api/repos/${repoId}`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setDetail((await res.json()) as RepoDetailData);
     } catch (e: unknown) {
@@ -400,7 +403,7 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
           >
             {remoteBusy === 'push' ? 'Push中…' : 'Push'}
           </button>
-          <button className="repo-header-refresh" onClick={() => { void load(); }}>更新</button>
+          <button className="repo-header-refresh" onClick={() => { void load(true, true); }}>更新</button>
         </div>
       </div>
 

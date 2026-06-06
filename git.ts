@@ -43,6 +43,10 @@ export interface RepoDetail {
   files: FileStatus[];
 }
 
+export interface RepoDetailOptions {
+  fetchRemote?: boolean;
+}
+
 export interface LogEntry {
   hash: string;
   shortHash: string;
@@ -342,7 +346,20 @@ export async function getRepoSummary(repoPath: string): Promise<RepoSummary> {
   };
 }
 
-export async function getRepoDetail(repoPath: string): Promise<RepoDetail> {
+export async function fetchRemotes(repoPath: string): Promise<void> {
+  const remotes = await execGit(['remote'], repoPath).catch(() => '');
+  if (!remotes.trim()) return;
+  await execGitCombined(['fetch', '--quiet', '--prune', '--no-tags'], repoPath);
+}
+
+export async function getRepoDetail(
+  repoPath: string,
+  options: RepoDetailOptions = {},
+): Promise<RepoDetail> {
+  if (options.fetchRemote) {
+    await fetchRemotes(repoPath);
+  }
+
   const [statusOut, branchOut] = await Promise.all([
     execGit(STATUS_ARGS, repoPath).catch(() => ''),
     execGit(['branch', '--show-current'], repoPath).catch(() => ''),
@@ -354,8 +371,12 @@ export async function getRepoDetail(repoPath: string): Promise<RepoDetail> {
   let ahead = 0;
   let behind = 0;
   try {
+    const upstream = (await execGit(
+      ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
+      repoPath,
+    )).trim();
     const aheadBehindOut = await execGit(
-      ['rev-list', '--left-right', '--count', `origin/${branch}...HEAD`],
+      ['rev-list', '--left-right', '--count', `${upstream}...HEAD`],
       repoPath,
     );
     const parts = aheadBehindOut.trim().split(/\s+/);

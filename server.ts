@@ -114,7 +114,9 @@ app.post('/api/repos/refresh', async c => {
 app.get('/api/repos/:id', async c => {
   try {
     const repoPath = validateRepoId(c.req.param('id'));
-    const detail = await git.getRepoDetail(repoPath);
+    const detail = await git.getRepoDetail(repoPath, {
+      fetchRemote: c.req.query('fetch') === 'true',
+    });
     return c.json(detail);
   } catch (e) {
     return errorResponse(c, e);
@@ -326,6 +328,12 @@ app.post('/api/repos/:id/push', async c => {
   try {
     const repoPath = validateRepoId(c.req.param('id'));
     const output = await git.pushChanges(repoPath);
+    await git.fetchRemotes(repoPath).catch(error => {
+      logger.warn('Failed to refresh remotes after push', {
+        repoPath,
+        error: errorMessage(error),
+      });
+    });
     const detail = await git.getRepoDetail(repoPath);
     return c.json({ output, detail });
   } catch (e) {
