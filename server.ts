@@ -76,13 +76,22 @@ function validateRepoId(id: string): string {
   return decoded;
 }
 
+async function requireGitRepo(repoPath: string): Promise<void> {
+  if (!(await git.isGitRepo(repoPath))) {
+    throw new Error('Git repository required');
+  }
+}
+
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
 function errorResponse(c: Context, e: unknown, fallback: ContentfulStatusCode = 500) {
   const msg = errorMessage(e);
-  const status: ContentfulStatusCode = msg === 'Unknown repository' ? 403 : fallback;
+  const status: ContentfulStatusCode =
+    msg === 'Unknown repository' ? 403 :
+    msg === 'Git repository required' ? 400 :
+    fallback;
   logger.error('API error', e, {
     method: c.req.method,
     path: c.req.path,
@@ -236,6 +245,7 @@ app.get('/api/repos/:id/search', async c => {
       subPath: subPath || undefined,
       pathQuery,
       limit,
+      ignoreDirs: config.ignoreDirs ?? [],
     });
     return c.json(result);
   } catch (e) {
@@ -258,6 +268,7 @@ app.get('/api/repos/:id/diff', async c => {
 app.get('/api/repos/:id/commits/:hash', async c => {
   try {
     const repoPath = validateRepoId(c.req.param('id'));
+    await requireGitRepo(repoPath);
     const hash = c.req.param('hash');
     if (!/^[0-9a-f]{4,64}$/i.test(hash)) return c.json({ error: 'Invalid hash' }, 400);
     const detail = await git.getCommitDetail(repoPath, hash);
@@ -270,6 +281,7 @@ app.get('/api/repos/:id/commits/:hash', async c => {
 app.post('/api/repos/:id/stage', async c => {
   try {
     const repoPath = validateRepoId(c.req.param('id'));
+    await requireGitRepo(repoPath);
     const body = await readJsonBody<FileListBody>(c, {});
     await git.stageFiles(repoPath, body.files);
     return c.json(await git.getRepoDetail(repoPath));
@@ -281,6 +293,7 @@ app.post('/api/repos/:id/stage', async c => {
 app.post('/api/repos/:id/unstage', async c => {
   try {
     const repoPath = validateRepoId(c.req.param('id'));
+    await requireGitRepo(repoPath);
     const body = await readJsonBody<FileListBody>(c, {});
     await git.unstageFiles(repoPath, body.files);
     return c.json(await git.getRepoDetail(repoPath));
@@ -292,6 +305,7 @@ app.post('/api/repos/:id/unstage', async c => {
 app.post('/api/repos/:id/discard', async c => {
   try {
     const repoPath = validateRepoId(c.req.param('id'));
+    await requireGitRepo(repoPath);
     const body = await readJsonBody<FileListBody>(c, {});
     await git.discardFiles(repoPath, body.files);
     return c.json(await git.getRepoDetail(repoPath));
@@ -303,6 +317,7 @@ app.post('/api/repos/:id/discard', async c => {
 app.post('/api/repos/:id/clean', async c => {
   try {
     const repoPath = validateRepoId(c.req.param('id'));
+    await requireGitRepo(repoPath);
     const body = await readJsonBody<FileListBody>(c, {});
     await git.cleanFiles(repoPath, body.files);
     return c.json(await git.getRepoDetail(repoPath));
@@ -314,6 +329,7 @@ app.post('/api/repos/:id/clean', async c => {
 app.post('/api/repos/:id/commit', async c => {
   try {
     const repoPath = validateRepoId(c.req.param('id'));
+    await requireGitRepo(repoPath);
     const body = await readJsonBody<CommitBody>(c, {});
     const message = typeof body.message === 'string' ? body.message : '';
     if (!message.trim()) return c.json({ error: 'message required' }, 400);
@@ -327,6 +343,7 @@ app.post('/api/repos/:id/commit', async c => {
 app.post('/api/repos/:id/push', async c => {
   try {
     const repoPath = validateRepoId(c.req.param('id'));
+    await requireGitRepo(repoPath);
     const output = await git.pushChanges(repoPath);
     await git.fetchRemotes(repoPath).catch(error => {
       logger.warn('Failed to refresh remotes after push', {
@@ -344,6 +361,7 @@ app.post('/api/repos/:id/push', async c => {
 app.post('/api/repos/:id/pull', async c => {
   try {
     const repoPath = validateRepoId(c.req.param('id'));
+    await requireGitRepo(repoPath);
     const output = await git.pullChanges(repoPath);
     const detail = await git.getRepoDetail(repoPath);
     return c.json({ output, detail });

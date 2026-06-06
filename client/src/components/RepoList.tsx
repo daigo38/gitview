@@ -3,13 +3,15 @@ import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus.ts';
 import type { NavigateFn, RepoSummary } from '../types.ts';
 
 interface StatusDotsProps {
+  isGitRepo: boolean;
   staged: number;
   unstaged: number;
   untracked: number;
   clean: boolean;
 }
 
-function StatusDots({ staged, unstaged, untracked, clean }: StatusDotsProps) {
+function StatusDots({ isGitRepo, staged, unstaged, untracked, clean }: StatusDotsProps) {
+  if (!isGitRepo) return <span className="dot-clean" style={{ fontSize: 12 }}>folder</span>;
   if (clean) return <span className="dot-clean" style={{ fontSize: 12 }}>✓ clean</span>;
   return (
     <span className="status-dots">
@@ -137,6 +139,7 @@ function RepoItem({ repo, navigate }: RepoItemProps) {
       <div className="repo-meta">
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>{relativeTime(repo.lastActivityAt)}</span>
         <StatusDots
+          isGitRepo={repo.isGitRepo}
           staged={repo.staged}
           unstaged={repo.unstaged}
           untracked={repo.untracked}

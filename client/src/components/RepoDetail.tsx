@@ -233,7 +233,9 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
         : `/api/repos/${repoId}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setDetail((await res.json()) as RepoDetailData);
+      const nextDetail = (await res.json()) as RepoDetailData;
+      setDetail(nextDetail);
+      if (!nextDetail.isGitRepo) setTab('tree');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -368,6 +370,7 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
 
   const files: FileStatus[] = detail?.files ?? [];
   const currentRepoPath = detail?.path ?? repoPath;
+  const isGitRepo = detail?.isGitRepo ?? true;
   const branch = detail?.branch ?? 'HEAD';
   const ahead = detail?.ahead ?? 0;
   const behind = detail?.behind ?? 0;
@@ -380,34 +383,38 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
       <div className="repo-detail-header">
         <span className="branch-badge" style={{ fontSize: 13 }}>{branch}</span>
-        {(ahead > 0 || behind > 0) && (
+        {isGitRepo && (ahead > 0 || behind > 0) && (
           <span className="ahead-behind">
             {ahead > 0 && <span className="ahead">↑{ahead}</span>}
             {behind > 0 && <span className="behind"> ↓{behind}</span>}
           </span>
         )}
         <div className="repo-header-actions">
-          <button
-            className="remote-btn remote-btn-pull"
-            onClick={() => { void runRemote('pull'); }}
-            disabled={remoteBusy !== null}
-            title="git pull --ff-only"
-          >
-            {remoteBusy === 'pull' ? 'Pull中…' : 'Pull'}
-          </button>
-          <button
-            className="remote-btn remote-btn-push"
-            onClick={() => { void runRemote('push'); }}
-            disabled={remoteBusy !== null}
-            title="git push"
-          >
-            {remoteBusy === 'push' ? 'Push中…' : 'Push'}
-          </button>
-          <button className="repo-header-refresh" onClick={() => { void load(true, true); }}>更新</button>
+          {isGitRepo && (
+            <>
+              <button
+                className="remote-btn remote-btn-pull"
+                onClick={() => { void runRemote('pull'); }}
+                disabled={remoteBusy !== null}
+                title="git pull --ff-only"
+              >
+                {remoteBusy === 'pull' ? 'Pull中…' : 'Pull'}
+              </button>
+              <button
+                className="remote-btn remote-btn-push"
+                onClick={() => { void runRemote('push'); }}
+                disabled={remoteBusy !== null}
+                title="git push"
+              >
+                {remoteBusy === 'push' ? 'Push中…' : 'Push'}
+              </button>
+            </>
+          )}
+          <button className="repo-header-refresh" onClick={() => { void load(true, isGitRepo); }}>更新</button>
         </div>
       </div>
 
-      {remoteResult && (
+      {isGitRepo && remoteResult && (
         <div className={`remote-result ${remoteResult.ok ? 'remote-result-ok' : 'remote-result-err'}`}>
           <div className="remote-result-head">
             <span>{remoteResult.action === 'push' ? 'Push' : 'Pull'} {remoteResult.ok ? '成功' : '失敗'}</span>
@@ -418,19 +425,23 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
       )}
 
       <div className="tabs">
-        <button className={`tab ${tab === 'status' ? 'active' : ''}`} onClick={() => setTab('status')}>
-          状態 {files.length > 0 && `(${files.length})`}
-        </button>
+        {isGitRepo && (
+          <button className={`tab ${tab === 'status' ? 'active' : ''}`} onClick={() => setTab('status')}>
+            状態 {files.length > 0 && `(${files.length})`}
+          </button>
+        )}
         <button className={`tab ${tab === 'tree' ? 'active' : ''}`} onClick={() => setTab('tree')}>
           ファイル
         </button>
-        <button className={`tab ${tab === 'log' ? 'active' : ''}`} onClick={() => setTab('log')}>
-          履歴
-        </button>
+        {isGitRepo && (
+          <button className={`tab ${tab === 'log' ? 'active' : ''}`} onClick={() => setTab('log')}>
+            履歴
+          </button>
+        )}
       </div>
 
       <div className="scroll-area">
-        {tab === 'status' && (
+        {isGitRepo && tab === 'status' && (
           <>
             {files.length === 0 && (
               <div className="empty">変更なし（クリーン）</div>

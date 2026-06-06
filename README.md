@@ -100,12 +100,12 @@ Git-ignored. Copy `config.example.json` and edit.
 ```
 
 - `scanDirs` — recursively scanned for `.git` (depth 6)
-- `repos` — explicit paths (combinable with `scanDirs`)
+- `repos` — explicit directory paths (combinable with `scanDirs`); non-Git directories are shown as read-only folders
 - `ignoreDirs` — directory names skipped during scan
 
 ## Security
 
-GitView has **no authentication** and grants read/write (stage / discard / clean) access to every configured repository. Keep it on loopback or inside your tailnet.
+GitView has **no authentication**. It grants read/write Git operations (stage / discard / clean) for configured Git repositories, and read-only browsing for configured non-Git directories. Keep it on loopback or inside your tailnet.
 
 - **Tailscale**: works out of the box via `tailscale serve` — no firewall change needed.
 - **LAN**: not exposed by default. To allow same-Wi-Fi devices without Tailscale, change `hostname` in `server.ts` from `'127.0.0.1'` to `'0.0.0.0'` and approve the macOS prompt.

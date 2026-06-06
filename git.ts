@@ -24,6 +24,7 @@ export interface RepoSummary {
   name: string;
   parentName: string | null;
   path: string;
+  isGitRepo: boolean;
   branch: string;
   staged: number;
   unstaged: number;
@@ -37,6 +38,7 @@ export interface RepoDetail {
   id: string;
   name: string;
   path: string;
+  isGitRepo: boolean;
   branch: string;
   ahead: number;
   behind: number;
@@ -85,6 +87,9 @@ export interface SearchMatch {
 }
 
 const STATUS_ARGS = ['status', '--porcelain', '-z', '--untracked-files=all'];
+const DEFAULT_SEARCH_IGNORE = new Set<string>([
+  '.cache', '.git', '.next', '__pycache__', 'build', 'coverage', 'dist', 'node_modules', 'vendor',
+]);
 
 export interface SearchResult {
   matches: SearchMatch[];
@@ -213,6 +218,15 @@ export function decodeId(id: string): string {
   return Buffer.from(id, 'base64url').toString('utf-8');
 }
 
+export async function isGitRepo(repoPath: string): Promise<boolean> {
+  try {
+    const stat = await fs.promises.stat(path.join(repoPath, '.git'));
+    return stat.isDirectory() || stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
 // node_modules等を除いて再帰的に .git ディレクトリを探す
 export async function scanRepos(config: ScanConfig): Promise<string[]> {
   const SKIP = new Set<string>([
@@ -249,8 +263,8 @@ export async function scanRepos(config: ScanConfig): Promise<string[]> {
   // 明示的に指定された repos も追加
   for (const repo of config.repos ?? []) {
     try {
-      await fs.promises.access(path.join(repo, '.git'));
-      found.add(repo);
+      const stat = await fs.promises.stat(repo);
+      if (stat.isDirectory()) found.add(path.resolve(repo));
     } catch {
       // ignore unreachable repo
     }
@@ -307,6 +321,25 @@ async function getWorktreeParent(repoPath: string): Promise<string | null> {
 }
 
 export async function getRepoSummary(repoPath: string): Promise<RepoSummary> {
+  const gitRepo = await isGitRepo(repoPath);
+  if (!gitRepo) {
+    const stat = await fs.promises.stat(repoPath).catch(() => null);
+    return {
+      id: encodeId(repoPath),
+      name: path.basename(repoPath),
+      parentName: null,
+      path: repoPath,
+      isGitRepo: false,
+      branch: 'Folder',
+      staged: 0,
+      unstaged: 0,
+      untracked: 0,
+      totalChanged: 0,
+      clean: true,
+      lastActivityAt: stat ? Math.floor(stat.mtimeMs / 1000) : 0,
+    };
+  }
+
   const [statusOut, branchOut, lastCommitOut, parentName] = await Promise.all([
     execGit(STATUS_ARGS, repoPath).catch(() => ''),
     execGit(['branch', '--show-current'], repoPath).catch(() => ''),
@@ -336,6 +369,7 @@ export async function getRepoSummary(repoPath: string): Promise<RepoSummary> {
     name: path.basename(repoPath),
     parentName: parentName ?? null,
     path: repoPath,
+    isGitRepo: true,
     branch: branchOut.trim() || 'HEAD',
     staged,
     unstaged,
@@ -347,6 +381,7 @@ export async function getRepoSummary(repoPath: string): Promise<RepoSummary> {
 }
 
 export async function fetchRemotes(repoPath: string): Promise<void> {
+  if (!(await isGitRepo(repoPath))) return;
   const remotes = await execGit(['remote'], repoPath).catch(() => '');
   if (!remotes.trim()) return;
   await execGitCombined(['fetch', '--quiet', '--prune', '--no-tags'], repoPath);
@@ -356,6 +391,20 @@ export async function getRepoDetail(
   repoPath: string,
   options: RepoDetailOptions = {},
 ): Promise<RepoDetail> {
+  const gitRepo = await isGitRepo(repoPath);
+  if (!gitRepo) {
+    return {
+      id: encodeId(repoPath),
+      name: path.basename(repoPath),
+      path: repoPath,
+      isGitRepo: false,
+      branch: 'Folder',
+      ahead: 0,
+      behind: 0,
+      files: [],
+    };
+  }
+
   if (options.fetchRemote) {
     await fetchRemotes(repoPath);
   }
@@ -390,6 +439,7 @@ export async function getRepoDetail(
     id: encodeId(repoPath),
     name: path.basename(repoPath),
     path: repoPath,
+    isGitRepo: true,
     branch,
     ahead,
     behind,
@@ -551,6 +601,121 @@ function validateRelativePaths(files: readonly string[] | undefined): void {
   }
 }
 
+function isBinaryBuffer(buffer: Buffer): boolean {
+  for (let i = 0; i < Math.min(buffer.length, 8192); i++) {
+    if (buffer[i] === 0) return true;
+  }
+  return false;
+}
+
+async function searchInFiles(
+  repoPath: string,
+  query: string,
+  options: {
+    caseSensitive?: boolean;
+    regex?: boolean;
+    subPath?: string;
+    pathQuery?: string;
+    limit?: number;
+    maxPerFile?: number;
+    ignoreDirs?: readonly string[];
+  },
+): Promise<SearchResult> {
+  const limit = Math.min(Math.max(options.limit ?? 500, 1), 5000);
+  const maxPerFile = Math.min(Math.max(options.maxPerFile ?? 20, 1), 200);
+  const pathQuery = options.pathQuery?.trim().toLowerCase() ?? '';
+  const root = options.subPath ? validatePath(repoPath, options.subPath) : repoPath;
+  const rootStat = await fs.promises.stat(root);
+  const searchRoot = rootStat.isDirectory() ? root : path.dirname(root);
+  const fileFilter = rootStat.isFile() ? path.basename(root) : null;
+  const ignoreDirs = new Set([...DEFAULT_SEARCH_IGNORE, ...(options.ignoreDirs ?? [])]);
+  const matches: SearchMatch[] = [];
+  let truncated = false;
+
+  let matcher: (line: string) => boolean;
+  if (options.regex) {
+    const flags = options.caseSensitive ? '' : 'i';
+    const pattern = new RegExp(query, flags);
+    matcher = line => pattern.test(line);
+  } else {
+    const needle = options.caseSensitive ? query : query.toLowerCase();
+    matcher = line => (options.caseSensitive ? line : line.toLowerCase()).includes(needle);
+  }
+
+  async function visit(dir: string): Promise<void> {
+    if (truncated) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    entries.sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const entry of entries) {
+      if (truncated) return;
+      if (entry.isDirectory()) {
+        if (ignoreDirs.has(entry.name)) continue;
+        await visit(path.join(dir, entry.name));
+        continue;
+      }
+
+      if (!entry.isFile()) continue;
+      if (fileFilter && entry.name !== fileFilter) continue;
+
+      const fullPath = path.join(dir, entry.name);
+      const relPath = path.relative(repoPath, fullPath);
+      if (pathQuery && !relPath.toLowerCase().includes(pathQuery)) continue;
+
+      let stat: fs.Stats;
+      try {
+        stat = await fs.promises.stat(fullPath);
+      } catch {
+        continue;
+      }
+      if (stat.size > 1024 * 1024) continue;
+
+      let buffer: Buffer;
+      try {
+        buffer = await fs.promises.readFile(fullPath);
+      } catch {
+        continue;
+      }
+      if (isBinaryBuffer(buffer)) continue;
+
+      const lines = buffer.toString('utf-8').split(/\r?\n/);
+      let fileMatches = 0;
+      for (let i = 0; i < lines.length; i++) {
+        if (!matcher(lines[i] ?? '')) continue;
+        const text = (lines[i] ?? '').slice(0, 500);
+        matches.push({
+          path: relPath,
+          line: i + 1,
+          text: (lines[i] ?? '').length > 500 ? `${text}…` : text,
+        });
+        fileMatches++;
+        if (matches.length >= limit) {
+          truncated = true;
+          return;
+        }
+        if (fileMatches >= maxPerFile) break;
+      }
+    }
+  }
+
+  if (rootStat.isFile()) {
+    await visit(path.dirname(root));
+  } else {
+    await visit(searchRoot);
+  }
+
+  return { matches, truncated };
+}
+
 // `git grep` で全文検索。
 // - ファイルシステム walk せず git index を使うので速い
 // - `.gitignore` を自動で尊重し、`--untracked` で未追跡ファイルも対象（ignored は除外される）
@@ -567,9 +732,11 @@ export async function searchInRepo(
     pathQuery?: string;
     limit?: number;
     maxPerFile?: number;
+    ignoreDirs?: readonly string[];
   } = {},
 ): Promise<SearchResult> {
   if (!query) return { matches: [], truncated: false };
+  if (!(await isGitRepo(repoPath))) return searchInFiles(repoPath, query, options);
 
   const limit = Math.min(Math.max(options.limit ?? 500, 1), 5000);
   const maxPerFile = Math.min(Math.max(options.maxPerFile ?? 20, 1), 200);

@@ -12,6 +12,7 @@ export interface RepoSummary {
   name: string;
   parentName: string | null;
   path: string;
+  isGitRepo: boolean;
   branch: string;
   staged: number;
   unstaged: number;
@@ -25,6 +26,7 @@ export interface RepoDetail {
   id: string;
   name: string;
   path: string;
+  isGitRepo: boolean;
   branch: string;
   ahead: number;
   behind: number;

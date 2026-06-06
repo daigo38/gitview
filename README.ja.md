@@ -100,12 +100,12 @@ tailscale serve --https=10001 off    # 解除
 ```
 
 - `scanDirs` — 再帰スキャン対象（深さ 6 まで）
-- `repos` — 明示的に指定するリポジトリパス（`scanDirs` と併用可）
+- `repos` — 明示的に指定するディレクトリパス（`scanDirs` と併用可）。Git 未初期化ディレクトリは閲覧専用フォルダとして表示される
 - `ignoreDirs` — スキャン時に無視するディレクトリ名
 
 ## セキュリティ
 
-GitView は **認証機構を持たず**、設定された全リポジトリへの読み書き（stage / discard / clean）を許可する。ループバックまたは Tailnet 内に閉じて使うこと。
+GitView は **認証機構を持たない**。設定された Git リポジトリには Git 書き込み操作（stage / discard / clean）を許可し、Git 未初期化ディレクトリは閲覧専用で扱う。ループバックまたは Tailnet 内に閉じて使うこと。
 
 - **Tailscale**: `tailscale serve` 経由でそのまま利用可（ファイアウォール変更不要）。
 - **LAN**: デフォルト非公開。同一 Wi-Fi 上の端末から Tailscale 無しで使うには、`server.ts` の `hostname` を `'127.0.0.1'` から `'0.0.0.0'` に変更し macOS のダイアログで許可。
