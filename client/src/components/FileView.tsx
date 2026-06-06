@@ -195,24 +195,43 @@ function FileContent({ repoId, filePath, initialLine, initialQuery, active, sear
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, data]);
 
-  // currentMatchIdx 変更時に該当マッチへスクロール
-  useEffect(() => {
-    if (allMatches.length === 0) return;
-    const m = allMatches[currentMatchIdx];
+  const scrollToMatch = useCallback((matchIndex: number) => {
+    const m = allMatches[matchIndex];
     if (!m) return;
     const el = document.getElementById(`match-${m.matchIdx}`);
     el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [currentMatchIdx, allMatches]);
+  }, [allMatches]);
+
+  // currentMatchIdx 変更時に該当マッチへスクロール
+  useEffect(() => {
+    if (allMatches.length === 0) return;
+    scrollToMatch(currentMatchIdx);
+  }, [currentMatchIdx, allMatches, scrollToMatch]);
+
+  const gotoMatch = useCallback((nextIdx: number) => {
+    if (allMatches.length === 0) return;
+    const normalized = (nextIdx + allMatches.length) % allMatches.length;
+    if (normalized === currentMatchIdx) {
+      scrollToMatch(normalized);
+      return;
+    }
+    setCurrentMatchIdx(normalized);
+  }, [allMatches.length, currentMatchIdx, scrollToMatch]);
 
   const gotoPrev = useCallback(() => {
-    if (allMatches.length === 0) return;
-    setCurrentMatchIdx(i => (i - 1 + allMatches.length) % allMatches.length);
-  }, [allMatches.length]);
+    gotoMatch(currentMatchIdx - 1);
+  }, [currentMatchIdx, gotoMatch]);
 
   const gotoNext = useCallback(() => {
+    gotoMatch(currentMatchIdx + 1);
+  }, [currentMatchIdx, gotoMatch]);
+
+  useEffect(() => {
     if (allMatches.length === 0) return;
-    setCurrentMatchIdx(i => (i + 1) % allMatches.length);
-  }, [allMatches.length]);
+    if (currentMatchIdx >= allMatches.length) {
+      setCurrentMatchIdx(0);
+    }
+  }, [currentMatchIdx, allMatches]);
 
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return;
