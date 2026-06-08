@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import FileTree from './FileTree.tsx';
 import { useRefreshOnFocus } from '../hooks/useRefreshOnFocus.ts';
-import type { FileStatus, FileTab, LogEntry, NavigateFn, RepoDetail as RepoDetailData } from '../types.ts';
+import type { FileContentResponse, FileStatus, FileTab, LogEntry, NavigateFn, RepoDetail as RepoDetailData } from '../types.ts';
 
 function getStatusClass(x: string, y: string): string {
   if (x === '?' && y === '?') return 'status-QQ';
@@ -19,9 +19,69 @@ function getStatusChar(x: string, y: string): string {
   return y;
 }
 
+function getFileIcon(name: string): string {
+  const parts = name.split('.');
+  const ext = (parts.length > 1 ? parts[parts.length - 1] : '')?.toLowerCase() ?? '';
+  const icons: Record<string, string> = {
+    js: '🟨', jsx: '🟨', ts: '🔷', tsx: '🔷',
+    py: '🐍', rb: '💎', go: '🩵', rs: '🦀',
+    html: '🌐', css: '🎨', scss: '🎨', sass: '🎨',
+    json: '📋', yaml: '📋', yml: '📋', toml: '📋',
+    md: '📝', txt: '📄',
+    sh: '⚙️', bash: '⚙️', zsh: '⚙️',
+    png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', svg: '🖼️', webp: '🖼️',
+    pdf: '📕', zip: '🗜️', tar: '🗜️', gz: '🗜️',
+    lock: '🔒',
+  };
+  return icons[ext] ?? '📄';
+}
+
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query) return text;
+  const lower = text.toLowerCase();
+  const q = query.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+  while (i < text.length) {
+    const idx = lower.indexOf(q, i);
+    if (idx === -1) {
+      parts.push(text.slice(i));
+      break;
+    }
+    if (idx > i) parts.push(text.slice(i, idx));
+    parts.push(<mark key={key++} className="search-hit">{text.slice(idx, idx + q.length)}</mark>);
+    i = idx + q.length;
+  }
+  return <>{parts}</>;
+}
+
 interface DiscardButtonProps {
   onDiscard: () => void;
   filePath: string;
+}
+
+interface ConfirmDialogProps {
+  title: string;
+  detail: string;
+  confirmLabel: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+function ConfirmDialog({ title, detail, confirmLabel, onCancel, onConfirm }: ConfirmDialogProps) {
+  return (
+    <div className="confirm-overlay" onClick={e => { e.stopPropagation(); onCancel(); }}>
+      <div className="confirm-sheet" onClick={e => e.stopPropagation()}>
+        <div className="confirm-title">{title}</div>
+        <div className="confirm-path">{detail}</div>
+        <div className="confirm-actions">
+          <button className="confirm-btn confirm-btn-cancel" onClick={onCancel}>キャンセル</button>
+          <button className="confirm-btn confirm-btn-ok" onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function DiscardButton({ onDiscard, filePath }: DiscardButtonProps) {
@@ -38,16 +98,13 @@ function DiscardButton({ onDiscard, filePath }: DiscardButtonProps) {
         <span className="action-btn-icon">↺</span>
       </button>
       {open && (
-        <div className="confirm-overlay" onClick={e => { e.stopPropagation(); setOpen(false); }}>
-          <div className="confirm-sheet" onClick={e => e.stopPropagation()}>
-            <div className="confirm-title">変更を取り消す</div>
-            <div className="confirm-path">{filePath}</div>
-            <div className="confirm-actions">
-              <button className="confirm-btn confirm-btn-cancel" onClick={() => setOpen(false)}>キャンセル</button>
-              <button className="confirm-btn confirm-btn-ok" onClick={() => { setOpen(false); onDiscard(); }}>取り消す</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="変更を取り消す"
+          detail={filePath}
+          confirmLabel="取り消す"
+          onCancel={() => setOpen(false)}
+          onConfirm={() => { setOpen(false); onDiscard(); }}
+        />
       )}
     </>
   );
@@ -133,15 +190,239 @@ function FileItem({
 interface SectionHeaderProps {
   label: string;
   count: number;
-  bulkLabel: string;
-  onBulk: () => void;
+  actions: SectionAction[];
 }
 
-function SectionHeader({ label, count, bulkLabel, onBulk }: SectionHeaderProps) {
+interface SectionAction {
+  label: string;
+  onClick: () => void;
+  tone?: 'default' | 'danger';
+}
+
+function SectionHeader({ label, count, actions }: SectionHeaderProps) {
   return (
     <div className="section-header-row">
       <span className="section-header-text">{label} ({count})</span>
-      <button className="section-bulk-btn" onClick={onBulk}>{bulkLabel}</button>
+      <div className="section-header-actions">
+        {actions.map(action => (
+          <button
+            key={action.label}
+            className={`section-bulk-btn ${action.tone === 'danger' ? 'section-bulk-btn-danger' : ''}`}
+            onClick={action.onClick}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface StatusSearchBarsProps {
+  contentQuery: string;
+  pathQuery: string;
+  onContentQueryChange: (value: string) => void;
+  onPathQueryChange: (value: string) => void;
+}
+
+function StatusSearchBars({
+  contentQuery,
+  pathQuery,
+  onContentQueryChange,
+  onPathQueryChange,
+}: StatusSearchBarsProps) {
+  return (
+    <div className="status-search-bars">
+      <div className="search-bar">
+        <span className="search-icon">🔎</span>
+        <input
+          type="search"
+          inputMode="search"
+          className="search-input"
+          placeholder="Changed files の全文検索…"
+          value={contentQuery}
+          onChange={e => onContentQueryChange(e.target.value)}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+        />
+        {contentQuery && (
+          <button
+            className="search-clear"
+            onClick={() => onContentQueryChange('')}
+            aria-label="クリア"
+          >
+            ×
+          </button>
+        )}
+      </div>
+      <div className="search-bar search-bar-secondary">
+        <span className="search-icon">🔎</span>
+        <input
+          type="search"
+          inputMode="search"
+          className="search-input"
+          placeholder="Changed files のファイル名検索…"
+          value={pathQuery}
+          onChange={e => onPathQueryChange(e.target.value)}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+        />
+        {pathQuery && (
+          <button
+            className="search-clear"
+            onClick={() => onPathQueryChange('')}
+            aria-label="クリア"
+          >
+            ×
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface ChangedFileContentMatch {
+  line: number;
+  text: string;
+}
+
+interface ChangedFileContentResult {
+  file: FileStatus;
+  matches: ChangedFileContentMatch[];
+}
+
+interface ChangedFileSearchResultsProps {
+  repoId: string;
+  repoName: string;
+  repoPath?: string;
+  files: FileStatus[];
+  contentQuery: string;
+  pathQuery: string;
+  navigate: NavigateFn;
+}
+
+function ChangedFileSearchResults({
+  repoId,
+  repoName,
+  repoPath,
+  files,
+  contentQuery,
+  pathQuery,
+  navigate,
+}: ChangedFileSearchResultsProps) {
+  const [results, setResults] = useState<ChangedFileContentResult[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const q = contentQuery.trim().toLowerCase();
+    const pathQ = pathQuery.trim().toLowerCase();
+    const candidates = files.filter(file => (
+      !pathQ || file.path.toLowerCase().includes(pathQ)
+    ));
+
+    setLoading(true);
+    setError(null);
+
+    async function runSearch(): Promise<void> {
+      const nextResults: ChangedFileContentResult[] = [];
+
+      for (const file of candidates) {
+        if (controller.signal.aborted) return;
+        try {
+          const params = new URLSearchParams({ path: file.path });
+          const res = await fetch(`/api/repos/${repoId}/file?${params.toString()}`, {
+            signal: controller.signal,
+          });
+          if (!res.ok) continue;
+          const data = (await res.json()) as FileContentResponse;
+          if (data.binary || data.content === null || data.size > 1024 * 1024) continue;
+
+          const matches: ChangedFileContentMatch[] = [];
+          const lines = data.content.split(/\r?\n/);
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i] ?? '';
+            if (!line.toLowerCase().includes(q)) continue;
+            matches.push({
+              line: i + 1,
+              text: line.length > 500 ? `${line.slice(0, 500)}…` : line,
+            });
+            if (matches.length >= 20) break;
+          }
+          if (matches.length > 0) nextResults.push({ file, matches });
+        } catch (e: unknown) {
+          if (e instanceof Error && e.name === 'AbortError') return;
+        }
+      }
+
+      setResults(nextResults);
+      setLoading(false);
+    }
+
+    void runSearch().catch((e: unknown) => {
+      if (e instanceof Error && e.name === 'AbortError') return;
+      setError(e instanceof Error ? e.message : String(e));
+      setLoading(false);
+    });
+
+    return () => controller.abort();
+  }, [repoId, files, contentQuery, pathQuery]);
+
+  if (loading) return <div className="loading"><div className="spinner" /></div>;
+  if (error) return <div className="error-msg">{error}</div>;
+  if (results.length === 0) return <div className="empty">マッチなし</div>;
+
+  const matchCount = results.reduce((sum, result) => sum + result.matches.length, 0);
+
+  return (
+    <div className="list">
+      <div className="search-summary">
+        {matchCount} 件 / {results.length} ファイル
+      </div>
+      {results.map(result => (
+        <div key={result.file.path} className="search-file-group">
+          <div
+            className="search-file-header"
+            onClick={() => navigate({
+              type: 'file',
+              repoId,
+              repoName,
+              repoPath,
+              filePath: result.file.path,
+              tab: result.file.isUntracked ? 'file' : (result.file.isStaged ? 'staged' : 'diff'),
+              fileStatus: result.file,
+              query: contentQuery,
+            })}
+          >
+            <span className="tree-icon">{getFileIcon(result.file.path.split('/').pop() ?? '')}</span>
+            <span className="search-file-path">{highlightMatch(result.file.path, pathQuery)}</span>
+            <span className="search-file-count">{result.matches.length}</span>
+          </div>
+          {result.matches.map(match => (
+            <div
+              key={`${result.file.path}:${match.line}`}
+              className="search-match"
+              onClick={() => navigate({
+                type: 'file',
+                repoId,
+                repoName,
+                repoPath,
+                filePath: result.file.path,
+                tab: 'file',
+                fileStatus: result.file,
+                line: match.line,
+                query: contentQuery,
+              })}
+            >
+              <span className="search-line-num">{match.line}</span>
+              <span className="search-line-text">{highlightMatch(match.text, contentQuery)}</span>
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
@@ -203,6 +484,7 @@ interface RepoDetailProps {
 type RepoTab = 'status' | 'tree' | 'log';
 type RepoOperation = 'stage' | 'unstage' | 'discard' | 'clean';
 type TreeSearchFocusKind = 'text' | 'name';
+type BulkDiscardTarget = 'unstaged' | 'untracked';
 
 type RemoteAction = 'push' | 'pull';
 
@@ -223,6 +505,11 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
   const [committing, setCommitting] = useState(false);
   const [remoteBusy, setRemoteBusy] = useState<RemoteAction | null>(null);
   const [remoteResult, setRemoteResult] = useState<RemoteResult | null>(null);
+  const [bulkDiscardTarget, setBulkDiscardTarget] = useState<BulkDiscardTarget | null>(null);
+  const [statusContentQuery, setStatusContentQuery] = useState('');
+  const [debouncedStatusContentQuery, setDebouncedStatusContentQuery] = useState('');
+  const [statusPathQuery, setStatusPathQuery] = useState('');
+  const [debouncedStatusPathQuery, setDebouncedStatusPathQuery] = useState('');
 
   const load = useCallback(async (showLoading = true, fetchRemote = false) => {
     if (showLoading) setLoading(true);
@@ -246,6 +533,16 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
   useEffect(() => { void load(); }, [load]);
 
   useRefreshOnFocus(active, () => load(false));
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedStatusContentQuery(statusContentQuery.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [statusContentQuery]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedStatusPathQuery(statusPathQuery.trim()), 200);
+    return () => window.clearTimeout(t);
+  }, [statusPathQuery]);
 
   const operate = useCallback(async (action: RepoOperation, files: string[] | undefined) => {
     try {
@@ -356,6 +653,39 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
     }
   }, [repoId, commitMsg, committing]);
 
+  const files: FileStatus[] = detail?.files ?? [];
+  const currentRepoPath = detail?.path ?? repoPath;
+  const isGitRepo = detail?.isGitRepo ?? true;
+  const branch = detail?.branch ?? 'HEAD';
+  const ahead = detail?.ahead ?? 0;
+  const behind = detail?.behind ?? 0;
+
+  const visibleFiles = useMemo(() => {
+    const q = debouncedStatusPathQuery.toLowerCase();
+    if (!q) return files;
+    return files.filter(f => f.path.toLowerCase().includes(q));
+  }, [files, debouncedStatusPathQuery]);
+
+  const staged    = visibleFiles.filter(f => f.isStaged);
+  const unstaged  = visibleFiles.filter(f => !f.isUntracked && f.isUnstaged);
+  const untracked = visibleFiles.filter(f => f.isUntracked);
+  const showStatusContentSearch = debouncedStatusContentQuery.length > 0;
+  const hasStatusPathFilter = debouncedStatusPathQuery.length > 0;
+  const bulkDiscardFiles = bulkDiscardTarget === 'unstaged'
+    ? unstaged
+    : bulkDiscardTarget === 'untracked'
+      ? untracked
+      : [];
+
+  const confirmBulkDiscard = (): void => {
+    const target = bulkDiscardTarget;
+    const paths = bulkDiscardFiles.map(f => f.path);
+    setBulkDiscardTarget(null);
+    if (paths.length === 0) return;
+    if (target === 'unstaged') void discard(paths);
+    if (target === 'untracked') void clean(paths);
+  };
+
   if (loading) return (
     <div className="scroll-area">
       <div className="loading"><div className="spinner" />読み込み中…</div>
@@ -367,17 +697,6 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
       <div className="error-msg">エラー: {error}</div>
     </div>
   );
-
-  const files: FileStatus[] = detail?.files ?? [];
-  const currentRepoPath = detail?.path ?? repoPath;
-  const isGitRepo = detail?.isGitRepo ?? true;
-  const branch = detail?.branch ?? 'HEAD';
-  const ahead = detail?.ahead ?? 0;
-  const behind = detail?.behind ?? 0;
-
-  const staged    = files.filter(f => f.isStaged);
-  const unstaged  = files.filter(f => !f.isUntracked && f.isUnstaged);
-  const untracked = files.filter(f => f.isUntracked);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
@@ -443,16 +762,40 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
       <div className="scroll-area">
         {isGitRepo && tab === 'status' && (
           <>
+            {files.length > 0 && (
+              <StatusSearchBars
+                contentQuery={statusContentQuery}
+                pathQuery={statusPathQuery}
+                onContentQueryChange={setStatusContentQuery}
+                onPathQueryChange={setStatusPathQuery}
+              />
+            )}
             {files.length === 0 && (
               <div className="empty">変更なし（クリーン）</div>
             )}
-            {staged.length > 0 && (
+            {showStatusContentSearch && (
+              <ChangedFileSearchResults
+                repoId={repoId}
+                repoName={repoName}
+                repoPath={currentRepoPath}
+                files={files}
+                contentQuery={debouncedStatusContentQuery}
+                pathQuery={debouncedStatusPathQuery}
+                navigate={navigate}
+              />
+            )}
+            {!showStatusContentSearch && files.length > 0 && visibleFiles.length === 0 && (
+              <div className="empty">マッチなし</div>
+            )}
+            {!showStatusContentSearch && staged.length > 0 && (
               <div className="section">
                 <SectionHeader
                   label="Staged"
                   count={staged.length}
-                  bulkLabel="全解除"
-                  onBulk={() => { void unstage(undefined); }}
+                  actions={[{
+                    label: 'Unstage all',
+                    onClick: () => { void unstage(staged.map(f => f.path)); },
+                  }]}
                 />
                 <div className="list">
                   {staged.map(f => (
@@ -488,13 +831,22 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
                 </div>
               </div>
             )}
-            {unstaged.length > 0 && (
+            {!showStatusContentSearch && unstaged.length > 0 && (
               <div className="section">
                 <SectionHeader
                   label="Unstaged"
                   count={unstaged.length}
-                  bulkLabel="全ステージ"
-                  onBulk={() => { void stage(unstaged.map(f => f.path)); }}
+                  actions={[
+                    {
+                      label: 'Stage all',
+                      onClick: () => { void stage(unstaged.map(f => f.path)); },
+                    },
+                    {
+                      label: 'Discard all',
+                      tone: 'danger',
+                      onClick: () => setBulkDiscardTarget('unstaged'),
+                    },
+                  ]}
                 />
                 <div className="list">
                   {unstaged.map(f => (
@@ -514,13 +866,22 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
                 </div>
               </div>
             )}
-            {untracked.length > 0 && (
+            {!showStatusContentSearch && untracked.length > 0 && (
               <div className="section">
                 <SectionHeader
                   label="Untracked"
                   count={untracked.length}
-                  bulkLabel="全ステージ"
-                  onBulk={() => { void stage(untracked.map(f => f.path)); }}
+                  actions={[
+                    {
+                      label: 'Stage all',
+                      onClick: () => { void stage(untracked.map(f => f.path)); },
+                    },
+                    {
+                      label: 'Discard all',
+                      tone: 'danger',
+                      onClick: () => setBulkDiscardTarget('untracked'),
+                    },
+                  ]}
                 />
                 <div className="list">
                   {untracked.map(f => (
@@ -539,6 +900,20 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
                   ))}
                 </div>
               </div>
+            )}
+            {!showStatusContentSearch && hasStatusPathFilter && visibleFiles.length > 0 && (
+              <div className="search-summary">{visibleFiles.length} / {files.length} changed files</div>
+            )}
+            {bulkDiscardTarget && (
+              <ConfirmDialog
+                title="一括変更取り消し"
+                detail={bulkDiscardTarget === 'untracked'
+                  ? `${bulkDiscardFiles.length}件の未追跡ファイルを削除します`
+                  : `${bulkDiscardFiles.length}件の変更を取り消します`}
+                confirmLabel="取り消す"
+                onCancel={() => setBulkDiscardTarget(null)}
+                onConfirm={confirmBulkDiscard}
+              />
             )}
           </>
         )}

@@ -585,6 +585,11 @@ html, body, #root {
   top: 0;
   z-index: 2;
 }
+.status-search-bars {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
 .search-bar {
   display: flex;
   align-items: center;
@@ -597,6 +602,9 @@ html, body, #root {
   z-index: 1;
 }
 .tree-search-bars .search-bar {
+  position: static;
+}
+.status-search-bars .search-bar {
   position: static;
 }
 .search-bar-secondary {
@@ -856,7 +864,8 @@ html, body, #root {
 /* Section header with bulk action */
 .section-header-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  gap: 10px;
   padding: 0 16px 6px;
 }
 .section-header-text {
@@ -866,15 +875,32 @@ html, body, #root {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+.section-header-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
 }
 .section-bulk-btn {
-  background: none;
+  background: rgba(88, 166, 255, 0.18);
   border: none;
   color: var(--link);
   font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  padding: 0 0 0 12px;
+  padding: 5px 10px;
+  border-radius: 6px;
   flex-shrink: 0;
+  font-family: inherit;
+  line-height: 1.2;
+}
+.section-bulk-btn-danger {
+  background: rgba(248, 81, 73, 0.18);
+  color: var(--red);
 }
 
 /* Commit view */
@@ -1074,13 +1100,18 @@ html, body, #root {
   background: rgba(0, 0, 0, 0.6);
   z-index: 1000;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
 }
 .confirm-sheet {
-  width: 100%;
+  width: min(100%, 420px);
   background: var(--bg2);
-  border-radius: 16px 16px 0 0;
-  padding: 20px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  animation: confirm-pop 0.14s ease-out;
 }
 .confirm-title {
   font-size: 15px;
@@ -1109,6 +1140,17 @@ html, body, #root {
 }
 .confirm-btn-cancel { background: var(--bg3); color: var(--text); }
 .confirm-btn-ok     { background: rgba(248, 81, 73, 0.2); color: var(--red); }
+
+@keyframes confirm-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
 
 /* Commit box */
 .commit-box {
