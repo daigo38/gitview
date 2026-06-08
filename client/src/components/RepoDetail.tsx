@@ -318,8 +318,8 @@ function ChangedFileSearchResults({
 
   useEffect(() => {
     const controller = new AbortController();
-    const q = contentQuery.trim().toLowerCase();
-    const pathQ = pathQuery.trim().toLowerCase();
+    const q = contentQuery.toLowerCase();
+    const pathQ = pathQuery.toLowerCase();
     const candidates = files.filter(file => (
       !pathQ || file.path.toLowerCase().includes(pathQ)
     ));
@@ -535,12 +535,12 @@ export default function RepoDetail({ repoId, repoName, repoPath, navigate, activ
   useRefreshOnFocus(active, () => load(false));
 
   useEffect(() => {
-    const t = window.setTimeout(() => setDebouncedStatusContentQuery(statusContentQuery.trim()), 300);
+    const t = window.setTimeout(() => setDebouncedStatusContentQuery(statusContentQuery), 300);
     return () => window.clearTimeout(t);
   }, [statusContentQuery]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => setDebouncedStatusPathQuery(statusPathQuery.trim()), 200);
+    const t = window.setTimeout(() => setDebouncedStatusPathQuery(statusPathQuery), 200);
     return () => window.clearTimeout(t);
   }, [statusPathQuery]);
 
